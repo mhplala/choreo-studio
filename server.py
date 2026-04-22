@@ -19,6 +19,7 @@ import requests
 import tos
 from flask import Flask, Response, jsonify, request, send_from_directory
 
+import faces
 import models
 import pipeline
 import storage
@@ -181,15 +182,31 @@ def upload_element(pid):
     f = request.files["file"]
     kind = request.form.get("kind", "character")
     name = (request.form.get("name") or f.filename or "element").strip()
-    # Detect extension from filename, default to jpg
+    mask_faces = request.form.get("mask_faces", "true").lower() in ("true", "1", "on", "yes")
+
+    raw_bytes = f.read()
+    face_count = 0
     ext = (Path(f.filename).suffix or ".jpg").lower()
     if ext not in (".jpg", ".jpeg", ".png", ".webp"):
         ext = ".jpg"
+
+    # Auto-mask real faces so Seedance's privacy filter doesn't reject later.
+    if mask_faces:
+        try:
+            masked_bytes, face_count = faces.mask_faces(raw_bytes)
+            if face_count > 0:
+                raw_bytes = masked_bytes
+                ext = ".png"  # faces.mask_faces re-encodes as PNG
+        except Exception:
+            # Don't break upload if detection fails — just store the original.
+            face_count = 0
+
     eid_hint = uuid.uuid4().hex[:12]
     key = f"dance-gen/studio/projects/{pid}/elements/{eid_hint}{ext}"
-    tos_upload_bytes(f.read(), key)
+    tos_upload_bytes(raw_bytes, key)
     el = storage.create_element(pid, kind, name, key, "upload", "")
     el["preview_url"] = tos_presign(key, expires=3600)
+    el["faces_masked"] = face_count
     return jsonify(el)
 
 

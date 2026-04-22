@@ -313,8 +313,8 @@ input, select, textarea { font:inherit; color:inherit; }
             <button class="btn primary" onclick="openGenerateModal()">✨ Generate</button>
           </div>
         </div>
-        <div style="font-size:11px;color:var(--yellow);background:rgba(255,215,0,0.04);border:1px solid rgba(255,215,0,0.2);border-radius:6px;padding:8px 12px;margin-bottom:14px;">
-          ⚠ Seedance 拒收包含真人的图片。用 Upload 时请只上传 AI 生图 / 卡通 / 非真人素材；要做"主播 / 模特"之类的人物，请用 <b>Generate</b>（Seedream）生成卡通或风格化角色。
+        <div style="font-size:11px;color:var(--text-dim);background:rgba(60,180,200,0.04);border:1px solid rgba(60,180,200,0.2);border-radius:6px;padding:8px 12px;margin-bottom:14px;">
+          ℹ 上传的图片会自动检测人脸并打上灰色 <code>FACE</code> 占位块，确保通过 Seedance 的隐私检查。需要清晰的角色，请用 <b>Generate</b>（Seedream 生图）。
         </div>
         <div class="grid" id="elementsGrid"></div>
         <div class="empty-state hidden" id="elementsEmpty">
@@ -575,11 +575,16 @@ async function handleUpload(ev) {
   fd.append('file', f);
   fd.append('kind', 'character');
   fd.append('name', f.name.replace(/\.[^.]+$/, ''));
+  fd.append('mask_faces', 'true');
   try {
     const el = await api(`/api/projects/${state.currentId}/elements/upload`, { method:'POST', body: fd });
     state.project.elements.push(el);
     renderElements();
-    toast('Element uploaded');
+    if (el.faces_masked > 0) {
+      toast(`Uploaded — ${el.faces_masked} face(s) auto-masked for Seedance compatibility`);
+    } else {
+      toast('Element uploaded');
+    }
   } catch (e) { toast(e.message, true); }
   ev.target.value = '';
 }
