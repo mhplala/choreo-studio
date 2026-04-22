@@ -58,14 +58,11 @@ if not AUTH_USER or not AUTH_PASS:
 ARK_API_KEY = env["ARK_API_KEY"]
 SEEDREAM_MODEL = env.get("SEEDREAM_MODEL", "doubao-seedream-4-5-251128")
 LLM_MODEL = env.get("LLM_MODEL", "doubao-1-5-lite-32k-250115")
-# Seedance tiered models — we auto-pick one based on the project's resolution.
+# Seedance has two tiers: fast (cheap, 480p-only with refs) and std (higher res).
 SEEDANCE_MODELS = {
     "fast": env.get("SEEDANCE_FAST", "doubao-seedance-2-0-fast-260128"),
     "std":  env.get("SEEDANCE_STD",  "doubao-seedance-2-0-260128"),
-    "pro":  env.get("SEEDANCE_PRO",  "doubao-seedance-2-0-pro-260215"),
 }
-# Back-compat alias for pipeline.configure()
-SEEDANCE_MODEL = SEEDANCE_MODELS["fast"]
 
 TOS_BUCKET = env["TOS_BUCKET"]
 tos_client = tos.TosClientV2(

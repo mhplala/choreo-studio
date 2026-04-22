@@ -37,16 +37,13 @@ def configure(tos_client, tos_bucket: str, jobs_dir: Path,
 
 
 def _pick_model(resolution: str, has_ref: bool) -> str:
-    """Return the cheapest Seedance model that supports the requested
-    resolution + reference mode combo.
-    - 480p  → fast (works for all modes)
-    - 720p  → std (fast doesn't support 720p with refs)
-    - 1080p → pro
+    """Return the cheapest Seedance model that can serve the requested
+    resolution. Seedance 2.0 has two tiers:
+      - fast: 480p only when references are present
+      - std:  720p / 1080p and all modes
     """
-    if resolution == "1080p":
-        return _SEEDANCE_MODELS.get("pro") or _SEEDANCE_MODELS["fast"]
-    if resolution == "720p":
-        return _SEEDANCE_MODELS.get("std") or _SEEDANCE_MODELS.get("pro") or _SEEDANCE_MODELS["fast"]
+    if resolution in ("720p", "1080p"):
+        return _SEEDANCE_MODELS.get("std") or _SEEDANCE_MODELS["fast"]
     return _SEEDANCE_MODELS["fast"]
 
 
