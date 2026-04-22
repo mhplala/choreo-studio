@@ -313,6 +313,9 @@ input, select, textarea { font:inherit; color:inherit; }
             <button class="btn primary" onclick="openGenerateModal()">✨ Generate</button>
           </div>
         </div>
+        <div style="font-size:11px;color:var(--yellow);background:rgba(255,215,0,0.04);border:1px solid rgba(255,215,0,0.2);border-radius:6px;padding:8px 12px;margin-bottom:14px;">
+          ⚠ Seedance 拒收包含真人的图片。用 Upload 时请只上传 AI 生图 / 卡通 / 非真人素材；要做"主播 / 模特"之类的人物，请用 <b>Generate</b>（Seedream）生成卡通或风格化角色。
+        </div>
         <div class="grid" id="elementsGrid"></div>
         <div class="empty-state hidden" id="elementsEmpty">
           <div class="big">🎨</div>
@@ -649,7 +652,7 @@ function renderShots() {
           }).join('')}
           <span class="chip clickable" onclick="openPicker('${s.id}')">+ Element</span>
           ${(!s.element_ids || !s.element_ids.length) ? `<span class="chip" style="color:var(--yellow);" title="Pure text-to-video mode — Seedance will snap duration to 5 or 10 seconds. Attach an element for exact duration control.">⚠ no refs</span>` : ''}
-          ${s.task_id && s.status === 'failed' ? `<span class="chip" title="${escapeHtml(s.task_id)}" style="color:var(--err);">× ${escapeHtml(s.task_id.slice(0,40))}</span>` : ''}
+          ${s.task_id && s.status === 'failed' ? `<span class="chip" title="${escapeHtml(s.task_id)}" style="color:var(--err);cursor:help;">× ${escapeHtml(friendlyError(s.task_id))}</span>` : ''}
         </div>
       </div>
       <div class="shot-right">
@@ -844,6 +847,27 @@ function updateStoryHint() {
 // =========================================================================
 function escapeHtml(s) {
   return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function friendlyError(raw) {
+  const s = String(raw || '');
+  if (s.includes('InputImageSensitiveContentDetected') || s.includes('may contain real person')) {
+    return 'real person in reference — use Seedream to generate a character instead';
+  }
+  if (s.includes('InputVideoSensitiveContentDetected')) {
+    return 'real person in reference video — provide a non-person clip';
+  }
+  if (s.includes('pixel count')) {
+    return 'reference image/video too small';
+  }
+  if (s.includes('duration') && s.includes('not valid')) {
+    return 'duration not valid for this mode (attach a reference for 5-12s, t2v uses 5 or 10)';
+  }
+  if (s.startsWith('seedance submit 400')) {
+    const m = s.match(/"message":"([^"]+)"/);
+    if (m) return m[1].slice(0, 80);
+  }
+  return s.slice(0, 60);
 }
 function setHash(pid) {
   history.replaceState(null, '', pid ? `#/p/${pid}` : location.pathname);
