@@ -20,6 +20,7 @@ import tos
 from flask import Flask, Response, jsonify, request, send_from_directory
 
 import models
+import pipeline
 import storage
 
 ROOT = Path(__file__).parent
@@ -65,6 +66,15 @@ tos_client = tos.TosClientV2(
 )
 
 storage.init_db(DB_PATH)
+pipeline.configure(tos_client, TOS_BUCKET, JOBS_DIR, ARK_API_KEY, SEEDANCE_MODEL)
+
+# On startup, mark any shots stuck in 'generating' (worker threads died with
+# the previous process) as failed so the UI doesn't show a phantom spinner.
+for p in storage.list_projects():
+    for s in storage.list_shots(p["id"]):
+        if s["status"] == "generating":
+            storage.update_shot(s["id"], status="failed",
+                                task_id="Server restarted while generating")
 
 
 # ---------------------------------------------------------------------------
@@ -147,9 +157,11 @@ def project(pid):
     if request.method == "GET":
         p["elements"] = storage.list_elements(pid)
         p["shots"] = storage.list_shots(pid)
-        # Attach presigned preview URLs for elements (signed per-request, short-ish).
         for e in p["elements"]:
             e["preview_url"] = tos_presign(e["tos_key"], expires=3600)
+        for s in p["shots"]:
+            if s.get("video_tos_key"):
+                s["video_url"] = tos_presign(s["video_tos_key"], expires=3600)
         return jsonify(p)
     if request.method == "DELETE":
         storage.delete_project(pid)
@@ -253,14 +265,46 @@ def create_shot(pid):
     return jsonify(shot)
 
 
-@app.route("/api/projects/<pid>/shots/<sid>", methods=["PATCH", "DELETE"])
+@app.route("/api/projects/<pid>/shots/<sid>", methods=["GET", "PATCH", "DELETE"])
 @require_auth
-def update_shot(pid, sid):
+def shot_detail(pid, sid):
+    if request.method == "GET":
+        s = storage.get_shot(sid)
+        if not s:
+            return jsonify({"error": "not found"}), 404
+        if s.get("video_tos_key"):
+            s["video_url"] = tos_presign(s["video_tos_key"], expires=3600)
+        return jsonify(s)
     if request.method == "DELETE":
         storage.delete_shot(sid)
         return jsonify({"ok": True})
     body = request.get_json() or {}
     return jsonify(storage.update_shot(sid, **body))
+
+
+@app.route("/api/projects/<pid>/shots/<sid>/generate", methods=["POST"])
+@require_auth
+def generate_shot(pid, sid):
+    s = storage.get_shot(sid)
+    if not s:
+        return jsonify({"error": "shot not found"}), 404
+    if s["status"] == "generating":
+        return jsonify({"error": "already generating"}), 409
+    body = request.get_json() or {}
+    chain = bool(body.get("chain_from_prev", False))
+    # optimistic status flip so the UI shows spinner immediately
+    storage.update_shot(sid, status="generating", task_id=None)
+    pipeline.enqueue_shot(pid, sid, chain_from_prev=chain)
+    return jsonify({"ok": True, "shot_id": sid, "chain_from_prev": chain}), 202
+
+
+@app.route("/api/projects/<pid>/shots/<sid>/video")
+@require_auth
+def shot_video_redirect(pid, sid):
+    s = storage.get_shot(sid)
+    if not s or not s.get("video_tos_key"):
+        return jsonify({"error": "no video yet"}), 404
+    return Response("", 302, {"Location": tos_presign(s["video_tos_key"], expires=3600)})
 
 
 # -- reorder shots --
