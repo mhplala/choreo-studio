@@ -143,12 +143,18 @@ def _run_one_shot(project_id: str, shot_id: str, chain_from_prev: bool):
         else:
             duration = 5 if requested <= 7 else 10
 
+        # Pull project-level generation params from settings.
+        settings = (project or {}).get("settings", {}) or {}
+        ratio = settings.get("ratio", "16:9")
+        resolution = settings.get("resolution", "480p")
+        gen_audio = bool(settings.get("generate_audio", False))
+
         task_id = models.seedance_submit(
             _ARK_KEY, _SEEDANCE_MODEL,
             prompt=shot["prompt"] or "A cinematic scene.",
             image_urls=([first_frame_url] if first_frame_url else []) + element_urls,
-            ratio="16:9", resolution="480p",
-            duration=duration, generate_audio=False,
+            ratio=ratio, resolution=resolution,
+            duration=duration, generate_audio=gen_audio,
         )
         storage.update_shot(shot_id, task_id=task_id)
 

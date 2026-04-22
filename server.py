@@ -146,7 +146,8 @@ def projects():
     body = request.get_json() or {}
     name = (body.get("name") or "Untitled project").strip()
     script = body.get("script", "") or ""
-    return jsonify(storage.create_project(name=name, script=script))
+    settings = body.get("settings") if isinstance(body.get("settings"), dict) else None
+    return jsonify(storage.create_project(name=name, script=script, settings=settings))
 
 
 @app.route("/api/projects/<pid>", methods=["GET", "PATCH", "DELETE"])

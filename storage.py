@@ -30,6 +30,7 @@ def init_db(db_path: Path):
                 id          TEXT PRIMARY KEY,
                 name        TEXT NOT NULL,
                 script      TEXT DEFAULT '',
+                settings    TEXT NOT NULL DEFAULT '{}',
                 created_at  REAL NOT NULL,
                 updated_at  REAL NOT NULL
             );
@@ -78,6 +79,12 @@ def init_db(db_path: Path):
             CREATE INDEX IF NOT EXISTS idx_tracks_project ON tracks(project_id);
             """
         )
+        # Additive migration for pre-existing DBs that were created before
+        # the settings column was added.
+        try:
+            c.execute("ALTER TABLE projects ADD COLUMN settings TEXT NOT NULL DEFAULT '{}'")
+        except sqlite3.OperationalError:
+            pass  # column already exists
 
 
 def _conn():
@@ -94,13 +101,33 @@ def _new_id() -> str:
 
 
 # ---------- projects ----------
-def create_project(name: str, script: str = "") -> dict:
+DEFAULT_SETTINGS = {
+    "ratio": "16:9",         # 16:9 | 9:16 | 1:1 | 4:3 | 3:4 | 21:9
+    "resolution": "480p",    # 480p | 720p | 1080p
+    "generate_audio": False,
+    "watermark": False,
+}
+
+
+def _hydrate_project(row: dict) -> dict:
+    d = dict(row)
+    try:
+        parsed = json.loads(d.get("settings") or "{}")
+    except (ValueError, TypeError):
+        parsed = {}
+    merged = {**DEFAULT_SETTINGS, **parsed}
+    d["settings"] = merged
+    return d
+
+
+def create_project(name: str, script: str = "", settings: dict | None = None) -> dict:
     pid = _new_id()
     now = time.time()
+    merged = {**DEFAULT_SETTINGS, **(settings or {})}
     with _LOCK, _conn() as c:
         c.execute(
-            "INSERT INTO projects(id, name, script, created_at, updated_at) VALUES(?,?,?,?,?)",
-            (pid, name, script, now, now),
+            "INSERT INTO projects(id, name, script, settings, created_at, updated_at) VALUES(?,?,?,?,?,?)",
+            (pid, name, script, json.dumps(merged), now, now),
         )
     return get_project(pid)
 
@@ -108,20 +135,25 @@ def create_project(name: str, script: str = "") -> dict:
 def list_projects() -> list[dict]:
     with _conn() as c:
         rows = c.execute("SELECT * FROM projects ORDER BY updated_at DESC").fetchall()
-    return [dict(r) for r in rows]
+    return [_hydrate_project(r) for r in rows]
 
 
 def get_project(pid: str) -> dict | None:
     with _conn() as c:
         r = c.execute("SELECT * FROM projects WHERE id=?", (pid,)).fetchone()
-    return dict(r) if r else None
+    return _hydrate_project(r) if r else None
 
 
 def update_project(pid: str, **fields) -> dict | None:
-    allowed = {"name", "script"}
+    allowed = {"name", "script", "settings"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
         return get_project(pid)
+    # Merge settings partials instead of clobbering.
+    if "settings" in fields and isinstance(fields["settings"], dict):
+        current = get_project(pid) or {"settings": {}}
+        merged = {**current.get("settings", {}), **fields["settings"]}
+        fields["settings"] = json.dumps(merged)
     sets = ", ".join(f"{k}=?" for k in fields)
     vals = list(fields.values()) + [time.time(), pid]
     with _LOCK, _conn() as c:

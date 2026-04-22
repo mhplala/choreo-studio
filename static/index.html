@@ -290,6 +290,39 @@ input, select, textarea { font:inherit; color:inherit; }
         </div>
       </div>
 
+      <!-- Project-level generation settings -->
+      <div class="card" id="projSettings" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin-bottom:14px;">
+        <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--text-mute);margin-right:8px;">
+          Generation defaults
+        </div>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);">
+          Ratio
+          <select id="setRatio" onchange="saveSettings({ratio: this.value})" class="duration-input" style="width:auto;">
+            <option value="16:9">16:9</option>
+            <option value="9:16">9:16</option>
+            <option value="1:1">1:1</option>
+            <option value="4:3">4:3</option>
+            <option value="3:4">3:4</option>
+            <option value="21:9">21:9</option>
+          </select>
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);">
+          Resolution
+          <select id="setResolution" onchange="saveSettings({resolution: this.value})" class="duration-input" style="width:auto;">
+            <option value="480p">480p · 便宜</option>
+            <option value="720p">720p · 标准</option>
+            <option value="1080p">1080p · 贵</option>
+          </select>
+        </label>
+        <label class="toggle-row" style="font-size:12px;">
+          <input type="checkbox" id="setAudio" onchange="saveSettings({generate_audio: this.checked})"/>
+          Generate audio (Seedance 自带配音)
+        </label>
+        <span class="mono" style="margin-left:auto;font-size:10px;color:var(--text-mute);" id="settingsHint">
+          Changes apply to newly generated shots · re-Generate existing shots to pick up new settings
+        </span>
+      </div>
+
       <div class="tabs">
         <div class="tab active" data-tab="elements" onclick="switchTab('elements')">
           Elements <span class="tab-badge" id="elementsCount">0</span>
@@ -500,9 +533,26 @@ function renderProject() {
   $('scriptBox').value = p.script || '';
   $('elementsCount').textContent = p.elements?.length || 0;
   $('shotsCount').textContent = p.shots?.length || 0;
+  // Settings
+  const s = p.settings || {};
+  $('setRatio').value = s.ratio || '16:9';
+  $('setResolution').value = s.resolution || '480p';
+  $('setAudio').checked = !!s.generate_audio;
   renderElements();
   renderShots();
   updateStoryHint();
+}
+
+async function saveSettings(patch) {
+  if (!state.currentId) return;
+  try {
+    const p = await api(`/api/projects/${state.currentId}`, {
+      method:'PATCH',
+      body: JSON.stringify({settings: patch}),
+    });
+    state.project.settings = p.settings;
+    toast('Settings saved');
+  } catch (e) { toast(e.message, true); }
 }
 
 function showLanding() {
