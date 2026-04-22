@@ -436,8 +436,8 @@ input, select, textarea { font:inherit; color:inherit; }
         <label>Size</label>
         <select id="genSize">
           <option value="2048x2048">2048×2048 · 方形 1:1</option>
-          <option value="1440x2560">1440×2560 · 竖屏 9:16</option>
-          <option value="2560x1440">2560×1440 · 横屏 16:9</option>
+          <option value="1536x2730">1536×2730 · 竖屏 9:16</option>
+          <option value="2730x1536">2730×1536 · 横屏 16:9</option>
           <option value="1792x2304">1792×2304 · 竖 3:4</option>
           <option value="2304x1792">2304×1792 · 横 4:3</option>
         </select>
@@ -688,7 +688,7 @@ function openGenerateModal() {
   // Default size matches the project's aspect ratio so the generated element
   // doesn't clash with the video output.
   const ratio = state.project?.settings?.ratio || '16:9';
-  const sizeMap = {'16:9':'2560x1440', '9:16':'1440x2560', '1:1':'2048x2048',
+  const sizeMap = {'16:9':'2730x1536', '9:16':'1536x2730', '1:1':'2048x2048',
                    '4:3':'2304x1792', '3:4':'1792x2304'};
   if (sizeMap[ratio]) $('genSize').value = sizeMap[ratio];
   setTimeout(() => $('genPrompt').focus(), 50);
