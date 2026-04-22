@@ -1,0 +1,692 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>Choreo Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+:root {
+  --bg: #0a0f1f; --bg-1: #0d1328; --bg-2: #121a36; --bg-3: #1a2347;
+  --line: #22305f; --line-2: #2e3e77;
+  --text: #e8ecff; --text-dim: #9aa3c7; --text-mute: #606a92;
+  --teal: oklch(0.82 0.14 190); --teal-soft: oklch(0.82 0.14 190 / 0.14);
+  --magenta: oklch(0.68 0.22 350); --magenta-soft: oklch(0.68 0.22 350 / 0.18);
+  --yellow: oklch(0.88 0.18 95);
+  --ok: oklch(0.82 0.14 160); --err: oklch(0.70 0.22 25);
+}
+* { box-sizing: border-box; }
+html, body { margin:0; padding:0; height:100%; }
+body {
+  font-family:'Space Grotesk',system-ui,sans-serif;
+  background:var(--bg); color:var(--text); min-height:100vh;
+  -webkit-font-smoothing:antialiased; letter-spacing:-0.005em;
+}
+.mono { font-family:'JetBrains Mono',ui-monospace,monospace; }
+button { font:inherit; color:inherit; cursor:pointer; border:0; background:transparent; }
+input, select, textarea { font:inherit; color:inherit; }
+
+/* layout */
+.app { display:grid; grid-template-columns: 240px 1fr; min-height:100vh; }
+.sidebar {
+  background:var(--bg-1); border-right:1px solid var(--line);
+  padding:16px 12px; display:flex; flex-direction:column; gap:12px;
+  position:sticky; top:0; height:100vh; overflow-y:auto;
+}
+.brand { display:flex; align-items:center; gap:10px; padding:4px 4px 12px; border-bottom:1px solid var(--line); }
+.brand-mark {
+  width:28px; height:28px; border-radius:8px; position:relative;
+  background: conic-gradient(from 220deg, var(--magenta), var(--teal), var(--yellow), var(--magenta));
+}
+.brand-mark::after { content:''; position:absolute; inset:4px; background:var(--bg-1); border-radius:5px; }
+.brand-mark::before { content:''; position:absolute; inset:9px; background:var(--text); border-radius:2px; transform:rotate(45deg); }
+.brand-name { font-weight:700; font-size:16px; letter-spacing:-0.01em; }
+.section-label {
+  font-size:10px; letter-spacing:0.14em; text-transform:uppercase;
+  color:var(--text-mute); padding:8px 4px 4px;
+}
+
+.proj-list { display:flex; flex-direction:column; gap:2px; }
+.proj-item {
+  display:flex; align-items:center; gap:8px;
+  padding:8px 10px; border-radius:6px; cursor:pointer;
+  font-size:13px; color:var(--text-dim); transition:background 120ms;
+}
+.proj-item:hover { background:var(--bg-2); color:var(--text); }
+.proj-item.active { background:var(--bg-3); color:var(--text); border:1px solid var(--line-2); }
+.proj-item .dot { width:6px; height:6px; border-radius:50%; background:var(--teal); flex-shrink:0; }
+
+.btn {
+  display:inline-flex; align-items:center; justify-content:center; gap:6px;
+  padding:8px 12px; border-radius:6px; font-size:13px; font-weight:500;
+  background:var(--bg-2); color:var(--text); border:1px solid var(--line);
+  cursor:pointer; transition:all 120ms;
+}
+.btn:hover { background:var(--bg-3); border-color:var(--line-2); }
+.btn:disabled { opacity:0.4; cursor:not-allowed; }
+.btn.primary { background:linear-gradient(135deg,var(--teal),var(--magenta)); color:white; border:0; }
+.btn.primary:hover { filter:brightness(1.1); }
+.btn.ghost { background:transparent; border-color:transparent; color:var(--text-dim); }
+.btn.ghost:hover { background:var(--bg-2); color:var(--text); }
+.btn.small { padding:4px 8px; font-size:11px; }
+.btn.danger:hover { color:var(--err); }
+
+/* main */
+.main { padding:20px 28px 60px; overflow-x:hidden; }
+.topbar {
+  display:flex; align-items:center; justify-content:space-between;
+  border-bottom:1px solid var(--line); padding-bottom:14px; margin-bottom:18px;
+}
+.proj-title {
+  font-size:22px; font-weight:700; letter-spacing:-0.02em;
+  background:transparent; border:0; outline:0; color:var(--text);
+  padding:2px 6px; border-radius:4px;
+}
+.proj-title:focus { background:var(--bg-2); }
+.topbar-right { display:flex; gap:8px; align-items:center; }
+.status-pill { padding:4px 10px; border-radius:100px; background:var(--bg-2); border:1px solid var(--line); font-size:11px; color:var(--text-dim); }
+
+.tabs {
+  display:flex; gap:2px; border-bottom:1px solid var(--line); margin-bottom:22px;
+}
+.tab {
+  padding:10px 16px; font-size:13px; font-weight:500; color:var(--text-dim);
+  border-bottom:2px solid transparent; cursor:pointer; transition:all 150ms;
+}
+.tab:hover { color:var(--text); }
+.tab.active { color:var(--text); border-bottom-color:var(--teal); }
+.tab-badge { display:inline-block; margin-left:6px; padding:1px 6px; border-radius:8px; background:var(--bg-3); color:var(--text-dim); font-size:10px; }
+
+.tab-panel { display:none; }
+.tab-panel.active { display:block; }
+
+/* cards / grids */
+.card {
+  background:linear-gradient(180deg,var(--bg-1),var(--bg-2));
+  border:1px solid var(--line); border-radius:14px; padding:20px;
+  margin-bottom:16px;
+}
+.grid { display:grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap:14px; }
+.el-card {
+  background:var(--bg-2); border:1px solid var(--line); border-radius:10px;
+  overflow:hidden; display:flex; flex-direction:column; position:relative;
+}
+.el-card:hover { border-color:var(--line-2); }
+.el-thumb {
+  width:100%; aspect-ratio:1/1; background:#000; position:relative;
+  display:flex; align-items:center; justify-content:center;
+}
+.el-thumb img { width:100%; height:100%; object-fit:cover; display:block; }
+.el-thumb.empty { color:var(--text-mute); font-size:11px; }
+.el-meta { padding:8px 10px; display:flex; flex-direction:column; gap:4px; }
+.el-name { font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.el-kind { font-size:10px; color:var(--text-mute); letter-spacing:0.05em; text-transform:uppercase; }
+.el-kind.generated { color:var(--teal); }
+.el-card .el-actions {
+  position:absolute; top:6px; right:6px; display:flex; gap:4px;
+  opacity:0; transition:opacity 120ms;
+}
+.el-card:hover .el-actions { opacity:1; }
+.el-actions button {
+  background:rgba(0,0,0,0.6); color:white; font-size:10px;
+  padding:4px 6px; border-radius:4px;
+}
+
+/* shots / storyboard */
+.script-box {
+  width:100%; min-height:100px; padding:12px 14px; border-radius:8px;
+  background:var(--bg-2); border:1px solid var(--line); color:var(--text);
+  resize:vertical; font-size:13px; line-height:1.5; outline:0;
+}
+.script-box:focus { border-color:var(--teal); }
+.story-actions { display:flex; gap:8px; margin-top:12px; align-items:center; }
+.shot-list { display:flex; flex-direction:column; gap:10px; }
+.shot-item {
+  display:grid; grid-template-columns: 48px 1fr auto; gap:14px;
+  padding:14px; background:var(--bg-2); border:1px solid var(--line);
+  border-radius:10px;
+}
+.shot-idx {
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  background:var(--bg-3); border-radius:8px; padding:6px 0;
+  font-family:'JetBrains Mono',monospace;
+}
+.shot-idx .n { font-size:18px; font-weight:600; color:var(--text); }
+.shot-idx .l { font-size:9px; color:var(--text-mute); letter-spacing:0.1em; }
+.shot-body { display:flex; flex-direction:column; gap:8px; }
+.shot-prompt {
+  width:100%; min-height:48px; padding:8px 10px; border-radius:6px;
+  background:var(--bg); border:1px solid var(--line); color:var(--text);
+  resize:vertical; font-size:12px; outline:0; font-family:inherit;
+}
+.shot-prompt:focus { border-color:var(--teal); }
+.shot-meta { display:flex; gap:10px; align-items:center; flex-wrap:wrap; font-size:11px; color:var(--text-dim); }
+.chip {
+  display:inline-flex; align-items:center; gap:6px; padding:3px 8px;
+  border-radius:100px; background:var(--bg-3); border:1px solid var(--line); font-size:11px;
+}
+.chip img { width:16px; height:16px; border-radius:50%; object-fit:cover; }
+.shot-right { display:flex; flex-direction:column; gap:6px; align-items:flex-end; }
+.duration-input {
+  width:60px; padding:4px 8px; border-radius:4px;
+  background:var(--bg); border:1px solid var(--line); color:var(--text);
+  font-family:'JetBrains Mono',monospace; font-size:12px;
+}
+
+/* empty states */
+.empty-state {
+  text-align:center; padding:40px 20px; color:var(--text-dim);
+  border:1px dashed var(--line-2); border-radius:10px;
+}
+.empty-state .big { font-size:32px; margin-bottom:10px; opacity:0.6; }
+.empty-state .msg { font-size:14px; margin-bottom:14px; }
+
+/* modal */
+.modal-backdrop {
+  position:fixed; inset:0; background:rgba(0,0,0,0.6); z-index:100;
+  display:flex; align-items:center; justify-content:center; padding:20px;
+}
+.modal {
+  background:var(--bg-1); border:1px solid var(--line); border-radius:14px;
+  padding:24px; max-width:480px; width:100%;
+}
+.modal h3 { margin:0 0 16px; font-size:18px; }
+.modal label { display:block; font-size:12px; color:var(--text-dim); margin-bottom:6px; }
+.modal input, .modal textarea, .modal select {
+  width:100%; padding:8px 10px; border-radius:6px;
+  background:var(--bg-2); border:1px solid var(--line); color:var(--text);
+  font-size:13px; outline:0; font-family:inherit;
+}
+.modal textarea { resize:vertical; min-height:80px; }
+.modal .row { display:flex; gap:10px; margin-top:10px; }
+.modal .row > * { flex:1; }
+.modal-actions { display:flex; justify-content:flex-end; gap:8px; margin-top:20px; }
+
+.hidden { display:none !important; }
+
+/* toast */
+.toast {
+  position:fixed; bottom:24px; right:24px; z-index:200;
+  padding:12px 16px; border-radius:8px; background:var(--bg-3);
+  border:1px solid var(--line-2); font-size:13px; color:var(--text);
+  transform:translateY(100px); opacity:0; transition:all 200ms;
+}
+.toast.show { transform:translateY(0); opacity:1; }
+.toast.err { border-color:var(--err); }
+
+/* responsive */
+@media (max-width:800px) {
+  .app { grid-template-columns: 1fr; }
+  .sidebar { position:static; height:auto; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- sidebar -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="brand-mark"></div>
+      <div><div class="brand-name">Choreo Studio</div><div style="font-size:10px;color:var(--text-mute);letter-spacing:0.1em;">MULTI-SHOT AI</div></div>
+    </div>
+
+    <button class="btn primary" onclick="newProject()">+ New project</button>
+
+    <div class="section-label">Projects</div>
+    <div class="proj-list" id="projList"></div>
+
+    <div style="flex:1"></div>
+    <div style="font-size:10px;color:var(--text-mute);padding:8px 4px;border-top:1px solid var(--line);">
+      Powered by Seedance · Seedream · Doubao
+    </div>
+  </aside>
+
+  <!-- main area -->
+  <main class="main">
+    <div id="mainContent" class="hidden">
+      <div class="topbar">
+        <input class="proj-title" id="projTitle" value="Untitled" onblur="saveProjectTitle()"/>
+        <div class="topbar-right">
+          <span class="status-pill" id="projStatus">draft</span>
+          <button class="btn ghost danger" onclick="deleteCurrentProject()">Delete</button>
+        </div>
+      </div>
+
+      <div class="tabs">
+        <div class="tab active" data-tab="elements" onclick="switchTab('elements')">
+          Elements <span class="tab-badge" id="elementsCount">0</span>
+        </div>
+        <div class="tab" data-tab="storyboard" onclick="switchTab('storyboard')">
+          Storyboard <span class="tab-badge" id="shotsCount">0</span>
+        </div>
+        <div class="tab" data-tab="timeline" onclick="switchTab('timeline')">Timeline</div>
+      </div>
+
+      <!-- Elements tab -->
+      <div class="tab-panel active" data-panel="elements">
+        <div class="card" style="display:flex;gap:10px;align-items:center;justify-content:space-between;">
+          <div>
+            <div style="font-size:14px;font-weight:600;">素材库</div>
+            <div style="font-size:12px;color:var(--text-dim);margin-top:2px;">角色、风格、道具——镜头里重复用的图都放这里。</div>
+          </div>
+          <div style="display:flex;gap:8px;">
+            <input type="file" id="uploadEl" accept="image/*" style="display:none" onchange="handleUpload(event)"/>
+            <button class="btn" onclick="document.getElementById('uploadEl').click()">⬆ Upload</button>
+            <button class="btn primary" onclick="openGenerateModal()">✨ Generate</button>
+          </div>
+        </div>
+        <div class="grid" id="elementsGrid"></div>
+        <div class="empty-state hidden" id="elementsEmpty">
+          <div class="big">🎨</div>
+          <div class="msg">还没有素材。点右上角 Upload / Generate 开始。</div>
+        </div>
+      </div>
+
+      <!-- Storyboard tab -->
+      <div class="tab-panel" data-panel="storyboard">
+        <div class="card">
+          <div style="font-size:14px;font-weight:600;margin-bottom:6px;">剧本 / Script</div>
+          <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">
+            用一段文字描述你想要的视频。点 Auto-storyboard 让 AI 拆成多个镜头。
+          </div>
+          <textarea class="script-box" id="scriptBox" placeholder="例如：一支年轻舞者在赛博朋克都市的屋顶跳了一段 20 秒的街舞，从日落到夜晚。"></textarea>
+          <div class="story-actions">
+            <button class="btn primary" onclick="autoStoryboard()">✨ Auto-storyboard</button>
+            <button class="btn" onclick="addEmptyShot()">+ Add shot</button>
+            <span class="mono" style="font-size:11px;color:var(--text-mute);margin-left:auto;" id="storyHint"></span>
+          </div>
+        </div>
+
+        <div class="shot-list" id="shotList"></div>
+        <div class="empty-state hidden" id="shotsEmpty">
+          <div class="big">🎬</div>
+          <div class="msg">还没有镜头。写上面的剧本后点 Auto-storyboard，或手动 + Add shot。</div>
+        </div>
+      </div>
+
+      <!-- Timeline tab -->
+      <div class="tab-panel" data-panel="timeline">
+        <div class="empty-state">
+          <div class="big">⏱</div>
+          <div class="msg">Timeline 还没做完 —— 等各镜头生成好后会出现在这里。</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- No-project landing -->
+    <div id="landing" class="hidden">
+      <div class="empty-state" style="margin-top:80px;">
+        <div class="big">👋</div>
+        <div class="msg">左边新建一个 project，开始做视频。</div>
+      </div>
+    </div>
+  </main>
+</div>
+
+<!-- Generate modal -->
+<div class="modal-backdrop hidden" id="genModal">
+  <div class="modal">
+    <h3>Generate Element</h3>
+    <label>Kind</label>
+    <select id="genKind">
+      <option value="character">Character</option>
+      <option value="style">Style / Background</option>
+      <option value="prop">Prop</option>
+    </select>
+    <label style="margin-top:10px;">Name (optional)</label>
+    <input id="genName" placeholder="e.g. Protagonist — Mei"/>
+    <label style="margin-top:10px;">Prompt</label>
+    <textarea id="genPrompt" placeholder="e.g. A confident young female dancer in cyberpunk streetwear..."></textarea>
+    <label style="margin-top:10px;">Size</label>
+    <select id="genSize">
+      <option value="1024x1024">1024×1024 (方形)</option>
+      <option value="1024x1792">1024×1792 (竖)</option>
+      <option value="1792x1024">1792×1024 (横)</option>
+    </select>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" id="genSubmit" onclick="submitGenerate()">Generate</button>
+    </div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<script>
+// =========================================================================
+// State
+// =========================================================================
+const state = {
+  projects: [],
+  currentId: null,
+  project: null,
+  tab: 'elements',
+};
+const $ = id => document.getElementById(id);
+const api = (path, opts = {}) => fetch(path, {
+  ...opts,
+  headers: { ...(opts.headers || {}), ...(opts.body && !(opts.body instanceof FormData) ? {'Content-Type':'application/json'} : {}) },
+}).then(async r => {
+  if (!r.ok) {
+    const err = await r.json().catch(() => ({error: `${r.status}`}));
+    throw new Error(err.error || `${r.status}`);
+  }
+  return r.json();
+});
+
+function toast(msg, isErr = false) {
+  const t = $('toast');
+  t.textContent = msg;
+  t.classList.toggle('err', isErr);
+  t.classList.add('show');
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => t.classList.remove('show'), 3000);
+}
+
+// =========================================================================
+// Projects
+// =========================================================================
+async function loadProjects() {
+  try {
+    state.projects = await api('/api/projects');
+    renderProjects();
+    if (!state.currentId && state.projects.length) {
+      selectProject(state.projects[0].id);
+    } else if (!state.projects.length) {
+      showLanding();
+    }
+  } catch (e) { toast(e.message, true); }
+}
+
+function renderProjects() {
+  const list = $('projList');
+  list.innerHTML = '';
+  for (const p of state.projects) {
+    const item = document.createElement('div');
+    item.className = 'proj-item' + (p.id === state.currentId ? ' active' : '');
+    item.innerHTML = `<span class="dot"></span><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;">${escapeHtml(p.name)}</span>`;
+    item.onclick = () => selectProject(p.id);
+    list.appendChild(item);
+  }
+}
+
+async function newProject() {
+  const name = prompt('Project name?', 'Untitled project');
+  if (!name) return;
+  try {
+    const p = await api('/api/projects', { method:'POST', body: JSON.stringify({name}) });
+    state.projects.unshift(p);
+    renderProjects();
+    selectProject(p.id);
+  } catch (e) { toast(e.message, true); }
+}
+
+async function selectProject(pid) {
+  state.currentId = pid;
+  renderProjects();
+  try {
+    state.project = await api(`/api/projects/${pid}`);
+    renderProject();
+    setHash(pid);
+  } catch (e) { toast(e.message, true); }
+}
+
+function renderProject() {
+  $('mainContent').classList.remove('hidden');
+  $('landing').classList.add('hidden');
+  const p = state.project;
+  $('projTitle').value = p.name;
+  $('scriptBox').value = p.script || '';
+  $('elementsCount').textContent = p.elements?.length || 0;
+  $('shotsCount').textContent = p.shots?.length || 0;
+  renderElements();
+  renderShots();
+  updateStoryHint();
+}
+
+function showLanding() {
+  $('mainContent').classList.add('hidden');
+  $('landing').classList.remove('hidden');
+}
+
+async function saveProjectTitle() {
+  const name = $('projTitle').value.trim();
+  if (!name || !state.currentId) return;
+  try {
+    await api(`/api/projects/${state.currentId}`, { method:'PATCH', body: JSON.stringify({name}) });
+    // update local state
+    const p = state.projects.find(p => p.id === state.currentId);
+    if (p) p.name = name;
+    renderProjects();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function deleteCurrentProject() {
+  if (!state.currentId) return;
+  if (!confirm(`Delete "${state.project.name}"? This can't be undone.`)) return;
+  try {
+    await api(`/api/projects/${state.currentId}`, { method:'DELETE' });
+    state.currentId = null;
+    state.project = null;
+    await loadProjects();
+  } catch (e) { toast(e.message, true); }
+}
+
+// =========================================================================
+// Tabs
+// =========================================================================
+function switchTab(name) {
+  state.tab = name;
+  document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === name));
+}
+
+// =========================================================================
+// Elements
+// =========================================================================
+function renderElements() {
+  const grid = $('elementsGrid');
+  const elements = state.project.elements || [];
+  $('elementsEmpty').classList.toggle('hidden', elements.length > 0);
+  grid.innerHTML = '';
+  for (const e of elements) {
+    const card = document.createElement('div');
+    card.className = 'el-card';
+    card.innerHTML = `
+      <div class="el-thumb">
+        <img src="${escapeHtml(e.preview_url)}" alt="${escapeHtml(e.name)}"/>
+      </div>
+      <div class="el-meta">
+        <div class="el-name" title="${escapeHtml(e.name)}">${escapeHtml(e.name)}</div>
+        <div class="el-kind ${e.source === 'generated' ? 'generated' : ''}">${e.kind} · ${e.source}</div>
+      </div>
+      <div class="el-actions"><button onclick="deleteElement('${e.id}')">×</button></div>
+    `;
+    grid.appendChild(card);
+  }
+  $('elementsCount').textContent = elements.length;
+}
+
+async function handleUpload(ev) {
+  const f = ev.target.files[0];
+  if (!f) return;
+  const fd = new FormData();
+  fd.append('file', f);
+  fd.append('kind', 'character');
+  fd.append('name', f.name.replace(/\.[^.]+$/, ''));
+  try {
+    const el = await api(`/api/projects/${state.currentId}/elements/upload`, { method:'POST', body: fd });
+    state.project.elements.push(el);
+    renderElements();
+    toast('Element uploaded');
+  } catch (e) { toast(e.message, true); }
+  ev.target.value = '';
+}
+
+function openGenerateModal() {
+  $('genModal').classList.remove('hidden');
+  $('genPrompt').focus();
+}
+function closeModal() { $('genModal').classList.add('hidden'); }
+
+async function submitGenerate() {
+  const prompt = $('genPrompt').value.trim();
+  if (!prompt) { toast('Prompt is required', true); return; }
+  const body = {
+    kind: $('genKind').value,
+    name: $('genName').value.trim(),
+    prompt,
+    size: $('genSize').value,
+  };
+  const btn = $('genSubmit');
+  btn.disabled = true; btn.textContent = 'Generating…';
+  try {
+    const el = await api(`/api/projects/${state.currentId}/elements/generate`, { method:'POST', body: JSON.stringify(body) });
+    state.project.elements.push(el);
+    renderElements();
+    closeModal();
+    $('genPrompt').value = ''; $('genName').value = '';
+    toast('Element generated');
+  } catch (e) { toast(e.message, true); }
+  finally { btn.disabled = false; btn.textContent = 'Generate'; }
+}
+
+async function deleteElement(eid) {
+  if (!confirm('Delete this element?')) return;
+  try {
+    await api(`/api/projects/${state.currentId}/elements/${eid}`, { method:'DELETE' });
+    state.project.elements = state.project.elements.filter(e => e.id !== eid);
+    renderElements();
+  } catch (e) { toast(e.message, true); }
+}
+
+// =========================================================================
+// Storyboard
+// =========================================================================
+function renderShots() {
+  const list = $('shotList');
+  const shots = state.project.shots || [];
+  $('shotsEmpty').classList.toggle('hidden', shots.length > 0);
+  list.innerHTML = '';
+  for (let i = 0; i < shots.length; i++) {
+    const s = shots[i];
+    const el = document.createElement('div');
+    el.className = 'shot-item';
+    el.innerHTML = `
+      <div class="shot-idx">
+        <div class="n">${String(i+1).padStart(2,'0')}</div>
+        <div class="l">SHOT</div>
+      </div>
+      <div class="shot-body">
+        <textarea class="shot-prompt" placeholder="Describe this shot…" data-sid="${s.id}">${escapeHtml(s.prompt || '')}</textarea>
+        <div class="shot-meta">
+          <span class="chip">${s.duration_sec || 9}s</span>
+          <span class="chip">status: ${s.status}</span>
+          ${(s.element_ids || []).map(eid => {
+            const e = state.project.elements.find(x => x.id === eid);
+            return e ? `<span class="chip"><img src="${escapeHtml(e.preview_url)}"/>${escapeHtml(e.name)}</span>` : '';
+          }).join('')}
+        </div>
+      </div>
+      <div class="shot-right">
+        <input type="number" class="duration-input" value="${s.duration_sec || 9}" min="3" max="15" data-sid="${s.id}" data-field="duration_sec"/>
+        <button class="btn small danger" onclick="deleteShot('${s.id}')">×</button>
+      </div>
+    `;
+    list.appendChild(el);
+  }
+  // wire up listeners
+  list.querySelectorAll('.shot-prompt').forEach(t => {
+    t.addEventListener('blur', () => saveShot(t.dataset.sid, {prompt: t.value}));
+  });
+  list.querySelectorAll('.duration-input').forEach(i => {
+    i.addEventListener('change', () => saveShot(i.dataset.sid, {duration_sec: parseInt(i.value, 10) || 9}));
+  });
+  $('shotsCount').textContent = shots.length;
+  updateStoryHint();
+}
+
+async function saveShot(sid, patch) {
+  try {
+    const updated = await api(`/api/projects/${state.currentId}/shots/${sid}`, { method:'PATCH', body: JSON.stringify(patch) });
+    const idx = state.project.shots.findIndex(s => s.id === sid);
+    if (idx >= 0) state.project.shots[idx] = updated;
+    updateStoryHint();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function addEmptyShot() {
+  try {
+    const shot = await api(`/api/projects/${state.currentId}/shots`, { method:'POST', body: JSON.stringify({}) });
+    state.project.shots.push(shot);
+    renderShots();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function deleteShot(sid) {
+  try {
+    await api(`/api/projects/${state.currentId}/shots/${sid}`, { method:'DELETE' });
+    state.project.shots = state.project.shots.filter(s => s.id !== sid);
+    renderShots();
+  } catch (e) { toast(e.message, true); }
+}
+
+async function autoStoryboard() {
+  const script = $('scriptBox').value.trim();
+  if (!script) { toast('Write a script first', true); return; }
+  if (state.project.shots && state.project.shots.length && !confirm(`This will replace the ${state.project.shots.length} existing shots. Continue?`)) return;
+  try {
+    const { shots } = await api(`/api/projects/${state.currentId}/storyboard/auto`, { method:'POST', body: JSON.stringify({script}) });
+    state.project.script = script;
+    state.project.shots = shots;
+    renderShots();
+    toast(`Generated ${shots.length} shots`);
+    switchTab('storyboard');
+  } catch (e) { toast(e.message, true); }
+}
+
+function updateStoryHint() {
+  const shots = state.project?.shots || [];
+  const total = shots.reduce((s, x) => s + (x.duration_sec || 9), 0);
+  $('storyHint').textContent = shots.length ? `${shots.length} shots · ${total}s total` : '';
+}
+
+// =========================================================================
+// Misc
+// =========================================================================
+function escapeHtml(s) {
+  return String(s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function setHash(pid) {
+  history.replaceState(null, '', pid ? `#/p/${pid}` : location.pathname);
+}
+function readHash() {
+  const m = location.hash.match(/^#\/p\/([a-f0-9]+)$/i);
+  return m ? m[1] : null;
+}
+
+// save script on blur
+$('scriptBox').addEventListener('blur', async () => {
+  if (!state.currentId) return;
+  const script = $('scriptBox').value.trim();
+  if (script === state.project.script) return;
+  try {
+    await api(`/api/projects/${state.currentId}`, { method:'PATCH', body: JSON.stringify({script}) });
+    state.project.script = script;
+  } catch (e) { toast(e.message, true); }
+});
+
+// boot
+loadProjects().then(() => {
+  const pid = readHash();
+  if (pid && state.projects.some(p => p.id === pid)) {
+    selectProject(pid);
+  }
+});
+</script>
+</body>
+</html>
