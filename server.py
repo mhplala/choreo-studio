@@ -168,6 +168,8 @@ def project(pid):
         for s in p["shots"]:
             if s.get("video_tos_key"):
                 s["video_url"] = tos_presign(s["video_tos_key"], expires=3600)
+            if s.get("preview_tos_key"):
+                s["preview_url"] = tos_presign(s["preview_tos_key"], expires=3600)
         return jsonify(p)
     if request.method == "DELETE":
         storage.delete_project(pid)
@@ -260,13 +262,58 @@ def auto_storyboard(pid):
         return jsonify({"error": "script is required"}), 400
     hint = body.get("count")
     try:
-        shots_data = models.auto_storyboard(ARK_API_KEY, LLM_MODEL, script,
-                                            hint_count=int(hint) if hint else None)
+        result = models.auto_storyboard(ARK_API_KEY, LLM_MODEL, script,
+                                        hint_count=int(hint) if hint else None)
     except Exception as e:
         return jsonify({"error": str(e)}), 502
-    storage.update_project(pid, script=script)
-    shots = storage.replace_shots(pid, shots_data)
-    return jsonify({"script": script, "shots": shots})
+    # result = {"bible": {...}, "shots": [...]}
+    storage.update_project(pid, script=script, bible=result.get("bible", {}))
+    shots = storage.replace_shots(pid, result.get("shots", []))
+    return jsonify({
+        "script": script,
+        "bible": result.get("bible", {}),
+        "shots": shots,
+    })
+
+
+@app.route("/api/projects/<pid>/bible", methods=["PATCH"])
+@require_auth
+def patch_bible(pid):
+    if not storage.get_project(pid):
+        return jsonify({"error": "project not found"}), 404
+    body = request.get_json() or {}
+    if not isinstance(body, dict):
+        return jsonify({"error": "body must be an object"}), 400
+    updated = storage.update_project(pid, bible=body)
+    return jsonify(updated)
+
+
+@app.route("/api/projects/<pid>/shots/<sid>/preview", methods=["POST"])
+@require_auth
+def generate_preview(pid, sid):
+    """Generate a Seedream still for this shot (synchronous; Seedream usually
+    returns in ~5-15s). Attaches the result as shot.preview_tos_key."""
+    if not storage.get_shot(sid):
+        return jsonify({"error": "shot not found"}), 404
+    key = pipeline.generate_shot_preview(pid, sid, SEEDREAM_MODEL)
+    if not key:
+        return jsonify({"error": "preview generation failed"}), 502
+    shot = storage.get_shot(sid)
+    if shot.get("preview_tos_key"):
+        shot["preview_url"] = tos_presign(shot["preview_tos_key"], expires=3600)
+    return jsonify(shot)
+
+
+@app.route("/api/projects/<pid>/storyboard/previews", methods=["POST"])
+@require_auth
+def generate_all_previews(pid):
+    """Kick off preview generation for every shot in this project, in parallel
+    background threads. Returns immediately with a list of shot ids that were
+    queued; frontend polls project GET to observe progress."""
+    shots = storage.list_shots(pid)
+    for s in shots:
+        pipeline.enqueue_preview(pid, s["id"], SEEDREAM_MODEL)
+    return jsonify({"queued": [s["id"] for s in shots]}), 202
 
 
 # -- shots CRUD --
@@ -282,6 +329,9 @@ def create_shot(pid):
         pid, int(order_idx),
         prompt=body.get("prompt", ""),
         element_ids=body.get("element_ids", []),
+        character_ids=body.get("character_ids", []),
+        location_id=body.get("location_id", "") or "",
+        camera=body.get("camera", "") or "",
         duration_sec=int(body.get("duration_sec", 9)),
     )
     return jsonify(shot)
@@ -296,6 +346,8 @@ def shot_detail(pid, sid):
             return jsonify({"error": "not found"}), 404
         if s.get("video_tos_key"):
             s["video_url"] = tos_presign(s["video_tos_key"], expires=3600)
+        if s.get("preview_tos_key"):
+            s["preview_url"] = tos_presign(s["preview_tos_key"], expires=3600)
         return jsonify(s)
     if request.method == "DELETE":
         storage.delete_shot(sid)

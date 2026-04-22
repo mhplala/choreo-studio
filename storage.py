@@ -31,6 +31,7 @@ def init_db(db_path: Path):
                 name        TEXT NOT NULL,
                 script      TEXT DEFAULT '',
                 settings    TEXT NOT NULL DEFAULT '{}',
+                bible       TEXT NOT NULL DEFAULT '{}',
                 created_at  REAL NOT NULL,
                 updated_at  REAL NOT NULL
             );
@@ -54,6 +55,10 @@ def init_db(db_path: Path):
                 order_idx         INTEGER NOT NULL,
                 prompt            TEXT NOT NULL DEFAULT '',
                 element_ids_json  TEXT NOT NULL DEFAULT '[]',
+                character_ids_json TEXT NOT NULL DEFAULT '[]',
+                location_id       TEXT DEFAULT '',
+                camera            TEXT DEFAULT '',
+                preview_tos_key   TEXT,
                 duration_sec      INTEGER NOT NULL DEFAULT 9,
                 video_tos_key     TEXT,
                 status            TEXT NOT NULL DEFAULT 'draft',  -- draft | generating | done | failed
@@ -79,12 +84,20 @@ def init_db(db_path: Path):
             CREATE INDEX IF NOT EXISTS idx_tracks_project ON tracks(project_id);
             """
         )
-        # Additive migration for pre-existing DBs that were created before
-        # the settings column was added.
-        try:
-            c.execute("ALTER TABLE projects ADD COLUMN settings TEXT NOT NULL DEFAULT '{}'")
-        except sqlite3.OperationalError:
-            pass  # column already exists
+        # Additive migrations for pre-existing DBs.
+        _maybe_add_col(c, "projects", "settings", "TEXT NOT NULL DEFAULT '{}'")
+        _maybe_add_col(c, "projects", "bible", "TEXT NOT NULL DEFAULT '{}'")
+        _maybe_add_col(c, "shots", "character_ids_json", "TEXT NOT NULL DEFAULT '[]'")
+        _maybe_add_col(c, "shots", "location_id", "TEXT DEFAULT ''")
+        _maybe_add_col(c, "shots", "camera", "TEXT DEFAULT ''")
+        _maybe_add_col(c, "shots", "preview_tos_key", "TEXT")
+
+
+def _maybe_add_col(c, table: str, col: str, spec: str) -> None:
+    try:
+        c.execute(f"ALTER TABLE {table} ADD COLUMN {col} {spec}")
+    except sqlite3.OperationalError:
+        pass  # already exists
 
 
 def _conn():
@@ -109,14 +122,25 @@ DEFAULT_SETTINGS = {
 }
 
 
+DEFAULT_BIBLE = {
+    "visual_bible": "",
+    "characters": [],   # [{"id": "...", "name": "...", "visual": "..."}]
+    "locations": [],    # [{"id": "...", "name": "...", "visual": "..."}]
+}
+
+
 def _hydrate_project(row: dict) -> dict:
     d = dict(row)
     try:
         parsed = json.loads(d.get("settings") or "{}")
     except (ValueError, TypeError):
         parsed = {}
-    merged = {**DEFAULT_SETTINGS, **parsed}
-    d["settings"] = merged
+    d["settings"] = {**DEFAULT_SETTINGS, **parsed}
+    try:
+        b = json.loads(d.get("bible") or "{}")
+    except (ValueError, TypeError):
+        b = {}
+    d["bible"] = {**DEFAULT_BIBLE, **b}
     return d
 
 
@@ -145,15 +169,17 @@ def get_project(pid: str) -> dict | None:
 
 
 def update_project(pid: str, **fields) -> dict | None:
-    allowed = {"name", "script", "settings"}
+    allowed = {"name", "script", "settings", "bible"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
         return get_project(pid)
-    # Merge settings partials instead of clobbering.
+    # settings: merge partials; bible: replace whole object (simpler semantics).
     if "settings" in fields and isinstance(fields["settings"], dict):
         current = get_project(pid) or {"settings": {}}
         merged = {**current.get("settings", {}), **fields["settings"]}
         fields["settings"] = json.dumps(merged)
+    if "bible" in fields and isinstance(fields["bible"], dict):
+        fields["bible"] = json.dumps({**DEFAULT_BIBLE, **fields["bible"]})
     sets = ", ".join(f"{k}=?" for k in fields)
     vals = list(fields.values()) + [time.time(), pid]
     with _LOCK, _conn() as c:
@@ -201,17 +227,31 @@ def delete_element(eid: str) -> None:
 
 # ---------- shots ----------
 def create_shot(project_id: str, order_idx: int, prompt: str = "",
-                element_ids: list[str] | None = None, duration_sec: int = 9) -> dict:
+                element_ids: list[str] | None = None,
+                character_ids: list[str] | None = None,
+                location_id: str = "", camera: str = "",
+                duration_sec: int = 9) -> dict:
     sid = _new_id()
     now = time.time()
     with _LOCK, _conn() as c:
         c.execute(
             "INSERT INTO shots(id, project_id, order_idx, prompt, element_ids_json, "
-            "duration_sec, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)",
+            "character_ids_json, location_id, camera, duration_sec, created_at, updated_at) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
             (sid, project_id, order_idx, prompt,
-             json.dumps(element_ids or []), duration_sec, now, now),
+             json.dumps(element_ids or []),
+             json.dumps(character_ids or []),
+             location_id, camera,
+             duration_sec, now, now),
         )
     return get_shot(sid)
+
+
+def _hydrate_shot(row) -> dict:
+    d = dict(row)
+    d["element_ids"] = json.loads(d.pop("element_ids_json", None) or "[]")
+    d["character_ids"] = json.loads(d.pop("character_ids_json", None) or "[]")
+    return d
 
 
 def list_shots(project_id: str) -> list[dict]:
@@ -220,32 +260,26 @@ def list_shots(project_id: str) -> list[dict]:
             "SELECT * FROM shots WHERE project_id=? ORDER BY order_idx ASC",
             (project_id,),
         ).fetchall()
-    out = []
-    for r in rows:
-        d = dict(r)
-        d["element_ids"] = json.loads(d.pop("element_ids_json") or "[]")
-        out.append(d)
-    return out
+    return [_hydrate_shot(r) for r in rows]
 
 
 def get_shot(sid: str) -> dict | None:
     with _conn() as c:
         r = c.execute("SELECT * FROM shots WHERE id=?", (sid,)).fetchone()
-    if not r:
-        return None
-    d = dict(r)
-    d["element_ids"] = json.loads(d.pop("element_ids_json") or "[]")
-    return d
+    return _hydrate_shot(r) if r else None
 
 
 def update_shot(sid: str, **fields) -> dict | None:
-    allowed = {"prompt", "duration_sec", "order_idx", "element_ids",
-               "status", "task_id", "seed", "video_tos_key"}
+    allowed = {"prompt", "duration_sec", "order_idx",
+               "element_ids", "character_ids", "location_id", "camera",
+               "status", "task_id", "seed", "video_tos_key", "preview_tos_key"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
         return get_shot(sid)
     if "element_ids" in fields:
         fields["element_ids_json"] = json.dumps(fields.pop("element_ids") or [])
+    if "character_ids" in fields:
+        fields["character_ids_json"] = json.dumps(fields.pop("character_ids") or [])
     sets = ", ".join(f"{k}=?" for k in fields)
     vals = list(fields.values()) + [time.time(), sid]
     with _LOCK, _conn() as c:
@@ -266,10 +300,14 @@ def replace_shots(project_id: str, shots: list[dict]) -> list[dict]:
         for i, s in enumerate(shots):
             c.execute(
                 "INSERT INTO shots(id, project_id, order_idx, prompt, element_ids_json, "
-                "duration_sec, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?)",
+                "character_ids_json, location_id, camera, duration_sec, created_at, updated_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 (_new_id(), project_id, i,
                  s.get("prompt", ""),
                  json.dumps(s.get("element_ids", [])),
+                 json.dumps(s.get("character_ids", [])),
+                 s.get("location_id", "") or "",
+                 s.get("camera", "") or "",
                  int(s.get("duration_sec", 9)),
                  now, now),
             )

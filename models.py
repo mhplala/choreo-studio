@@ -60,22 +60,59 @@ def doubao_chat(api_key: str, model: str, messages: list[dict],
 
 
 STORYBOARD_SYSTEM = (
-    "You are a professional video director. Given a user's idea or script, break it down "
-    "into a storyboard of individual shots for an AI video generator. "
-    "Output STRICT JSON only (no prose, no markdown fences) in this shape:\n"
-    '{"shots": [{"prompt": "...", "duration_sec": 9}, ...]}\n'
+    "You are a professional visual director for AI video generation. Given a user's "
+    "idea or script, produce a structured storyboard that maximizes cross-shot continuity.\n\n"
+    "Output STRICT JSON only (no prose, no markdown fences). Schema:\n"
+    "{\n"
+    '  "visual_bible": "Overarching style: medium (2D cartoon / photoreal / anime), '
+    'color palette, lighting mood, film-stock feel, overall aesthetic. One dense paragraph.",\n'
+    '  "characters": [\n'
+    '    {"id": "snake_case_id", "name": "Readable name", '
+    '"visual": "Physical description: age, ethnicity, hair, clothing, distinctive features — enough '
+    'that a model can draw them consistently across shots."}\n'
+    "  ],\n"
+    '  "locations": [\n'
+    '    {"id": "snake_case_id", "name": "Readable name", '
+    '"visual": "Physical space description: key objects, colors, mood."}\n'
+    "  ],\n"
+    '  "shots": [\n'
+    "    {\n"
+    '      "characters": ["character_id", ...],\n'
+    '      "location": "location_id or empty string",\n'
+    '      "camera": "close-up | medium shot | wide shot | POV | overhead | tracking shot | etc.",\n'
+    '      "action": "What specifically happens in THIS 9-second shot. One clear action or beat.",\n'
+    '      "duration_sec": 9\n'
+    "    }\n"
+    "  ]\n"
+    "}\n\n"
     "Rules:\n"
-    "- Each shot's prompt should be a vivid visual description (subject, action, camera, mood, style) "
-    "in the same language as the user's input.\n"
-    "- Each shot is 9 seconds by default; only use a different duration if the user explicitly requests it.\n"
-    "- 3-8 shots for typical inputs; 1 shot if the input clearly describes a single moment.\n"
-    "- Ensure cross-shot character/style continuity in the descriptions.\n"
-    "- No lyrics, no copyrighted song references, no real-person likeness requests."
+    "- Every id in shots.characters / shots.location MUST be defined in characters[] / locations[].\n"
+    "- Use the same language as the user's input for all free-text fields.\n"
+    "- 3-8 shots for typical inputs; 1 shot if the user clearly describes a single moment.\n"
+    "- Durations: 9 unless user explicitly says otherwise.\n"
+    "- Keep character/location/visual descriptions DETAILED (30+ words each) — these get injected "
+    "into every shot's prompt for continuity, so specificity beats brevity.\n"
+    "- Don't reference real people, copyrighted songs/lyrics, or branded IP."
 )
 
 
+def _strip_fences(raw: str) -> str:
+    raw = raw.strip()
+    if raw.startswith("```"):
+        raw = raw.split("```", 2)[1]
+        if raw.startswith("json"):
+            raw = raw[4:]
+        raw = raw.strip().rstrip("`").strip()
+    return raw
+
+
 def auto_storyboard(api_key: str, model: str, script: str,
-                    hint_count: int | None = None) -> list[dict]:
+                    hint_count: int | None = None) -> dict:
+    """Returns a structured storyboard:
+      {"bible": {...}, "shots": [...]}
+    where bible has visual_bible/characters/locations and each shot has
+    characters/location/camera/action/duration_sec.
+    """
     user_msg = script.strip()
     if hint_count:
         user_msg += f"\n\n(Please produce exactly {hint_count} shots.)"
@@ -83,23 +120,45 @@ def auto_storyboard(api_key: str, model: str, script: str,
         api_key, model,
         [{"role": "system", "content": STORYBOARD_SYSTEM},
          {"role": "user", "content": user_msg}],
-        temperature=0.7, max_tokens=2000,
+        temperature=0.6, max_tokens=3000,
     )
-    # Be forgiving: strip potential markdown fences.
-    raw = raw.strip()
-    if raw.startswith("```"):
-        raw = raw.split("```", 2)[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.strip().rstrip("`").strip()
+    raw = _strip_fences(raw)
     try:
         data = json.loads(raw)
     except json.JSONDecodeError as e:
         raise RuntimeError(f"doubao returned non-JSON storyboard: {raw[:300]}...") from e
-    shots = data.get("shots", [])
-    # Normalize
-    return [{"prompt": s.get("prompt", "").strip(),
-             "duration_sec": int(s.get("duration_sec", 9))} for s in shots if s.get("prompt")]
+
+    bible = {
+        "visual_bible": (data.get("visual_bible") or "").strip(),
+        "characters": [
+            {"id": str(c.get("id") or "").strip(),
+             "name": (c.get("name") or "").strip(),
+             "visual": (c.get("visual") or "").strip()}
+            for c in (data.get("characters") or []) if c.get("id")
+        ],
+        "locations": [
+            {"id": str(l.get("id") or "").strip(),
+             "name": (l.get("name") or "").strip(),
+             "visual": (l.get("visual") or "").strip()}
+            for l in (data.get("locations") or []) if l.get("id")
+        ],
+    }
+    known_char_ids = {c["id"] for c in bible["characters"]}
+    known_loc_ids = {l["id"] for l in bible["locations"]}
+
+    shots = []
+    for s in (data.get("shots") or []):
+        action = (s.get("action") or s.get("prompt") or "").strip()
+        if not action:
+            continue
+        shots.append({
+            "prompt": action,      # "action" maps to shot.prompt (per-shot specific)
+            "character_ids": [c for c in (s.get("characters") or []) if c in known_char_ids],
+            "location_id": s.get("location", "") if s.get("location") in known_loc_ids else "",
+            "camera": (s.get("camera") or "").strip(),
+            "duration_sec": int(s.get("duration_sec", 9)),
+        })
+    return {"bible": bible, "shots": shots}
 
 
 # ---------------------------------------------------------------------------

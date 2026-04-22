@@ -99,6 +99,43 @@ def _build_payload_content(prompt: str, element_urls: list[str],
     return content
 
 
+def compose_prompt(bible: dict, shot: dict) -> str:
+    """Build the full Seedance prompt from the project's bible and this shot's
+    structured fields. This is the core of cross-shot continuity: every shot's
+    prompt carries the same visual_bible + character descriptions + location
+    description, so Seedance sees coherent context across the whole project.
+    """
+    parts = []
+    vb = (bible.get("visual_bible") or "").strip()
+    if vb:
+        parts.append(vb)
+
+    char_ids = shot.get("character_ids") or []
+    chars = [c for c in (bible.get("characters") or []) if c["id"] in char_ids]
+    if chars:
+        parts.append(
+            "角色: " + "；".join(
+                f"{c['name']}（{c['visual']}）" if c.get("visual") else c.get("name", "")
+                for c in chars
+            )
+        )
+
+    loc_id = shot.get("location_id") or ""
+    loc = next((l for l in (bible.get("locations") or []) if l["id"] == loc_id), None)
+    if loc and loc.get("visual"):
+        parts.append(f"场景: {loc['visual']}")
+
+    cam = (shot.get("camera") or "").strip()
+    if cam:
+        parts.append(f"镜头: {cam}")
+
+    action = (shot.get("prompt") or "").strip()
+    if action:
+        parts.append(f"动作: {action}")
+
+    return "\n\n".join(parts) if parts else "A cinematic scene."
+
+
 def _run_one_shot(project_id: str, shot_id: str, chain_from_prev: bool):
     """Worker body. Updates shot.status in DB as it progresses."""
     shot = storage.get_shot(shot_id)
@@ -120,9 +157,15 @@ def _run_one_shot(project_id: str, shot_id: str, chain_from_prev: bool):
             if el:
                 element_urls.append(_presign(el["tos_key"]))
 
-        # Optionally chain: extract last frame of previous shot's video
+        # The Seedream-generated preview (if any) locks composition: attach as
+        # first-frame reference. Strongly outranks chain mode when both exist.
         first_frame_url = None
-        if chain_from_prev:
+        if shot.get("preview_tos_key"):
+            first_frame_url = _presign(shot["preview_tos_key"])
+
+        # Optionally chain: extract last frame of previous shot's video. Only
+        # if we didn't already have a preview first-frame.
+        if not first_frame_url and chain_from_prev:
             shots = storage.list_shots(project_id)
             prev = None
             for s in shots:
@@ -162,12 +205,17 @@ def _run_one_shot(project_id: str, shot_id: str, chain_from_prev: bool):
         gen_audio = bool(settings.get("generate_audio", False))
 
         # Auto-pick the cheapest Seedance model tier that supports the
-        # requested resolution — user doesn't need to know fast/std/pro exist.
+        # requested resolution — user doesn't need to know fast/std exists.
         model_id = _pick_model(resolution, has_ref)
+
+        # Compose the full prompt from project bible + shot structured fields,
+        # so cross-shot continuity (character, location, style) is baked in.
+        bible = (project or {}).get("bible") or {}
+        full_prompt = compose_prompt(bible, shot)
 
         task_id = models.seedance_submit(
             _ARK_KEY, model_id,
-            prompt=shot["prompt"] or "A cinematic scene.",
+            prompt=full_prompt,
             image_urls=([first_frame_url] if first_frame_url else []) + element_urls,
             ratio=ratio, resolution=resolution,
             duration=duration, generate_audio=gen_audio,
@@ -201,7 +249,7 @@ def _run_one_shot(project_id: str, shot_id: str, chain_from_prev: bool):
         storage.update_shot(shot_id, status="failed", task_id=str(e)[:200])
 
 
-# Public: kick off generation in a background thread. Returns immediately.
+# Public: kick off video generation in a background thread. Returns immediately.
 def enqueue_shot(project_id: str, shot_id: str, chain_from_prev: bool = False):
     t = threading.Thread(
         target=_run_one_shot,
@@ -209,3 +257,59 @@ def enqueue_shot(project_id: str, shot_id: str, chain_from_prev: bool = False):
         daemon=True,
     )
     t.start()
+
+
+# ---------------------------------------------------------------------------
+# Storyboard still previews (Seedream) — much cheaper than video, catches
+# composition/continuity problems before burning video credits.
+# ---------------------------------------------------------------------------
+def _seedream_size_for_ratio(ratio: str) -> str:
+    return {
+        "1:1":  "2048x2048",
+        "9:16": "1536x2730",
+        "16:9": "2730x1536",
+        "3:4":  "1792x2304",
+        "4:3":  "2304x1792",
+        "21:9": "2730x1536",  # closest available that clears the 3.7M floor
+    }.get(ratio, "2048x2048")
+
+
+def generate_shot_preview(project_id: str, shot_id: str,
+                          seedream_model: str) -> str | None:
+    """Generate a Seedream still for this shot using the composed prompt,
+    upload it to TOS, attach as shot.preview_tos_key. Returns the TOS key
+    or None on failure.
+    """
+    shot = storage.get_shot(shot_id)
+    project = storage.get_project(project_id)
+    if not shot or not project:
+        return None
+
+    bible = project.get("bible") or {}
+    full_prompt = compose_prompt(bible, shot)
+    ratio = (project.get("settings") or {}).get("ratio", "16:9")
+    size = _seedream_size_for_ratio(ratio)
+
+    try:
+        url = models.seedream_generate(_ARK_KEY, seedream_model,
+                                       prompt=full_prompt, size=size)
+    except Exception:
+        return None
+
+    try:
+        img_bytes = requests.get(url, timeout=120).content
+    except Exception:
+        return None
+
+    key = f"dance-gen/studio/projects/{project_id}/shots/{shot_id}/preview.png"
+    _TOS_CLIENT.put_object(TOS_BUCKET, key, content=img_bytes)
+    storage.update_shot(shot_id, preview_tos_key=key)
+    return key
+
+
+def enqueue_preview(project_id: str, shot_id: str, seedream_model: str):
+    """Run preview gen in a background thread (Seedream is ~5-15s so this
+    keeps the request hot-path snappy)."""
+    def _runner():
+        generate_shot_preview(project_id, shot_id, seedream_model)
+    threading.Thread(target=_runner, daemon=True).start()

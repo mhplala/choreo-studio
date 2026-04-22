@@ -210,6 +210,62 @@ input, select, textarea { font:inherit; color:inherit; }
 .toggle-row { display:flex; align-items:center; gap:10px; font-size:12px; color:var(--text-dim); }
 .toggle-row input[type=checkbox] { width:16px; height:16px; accent-color:var(--teal); }
 
+/* bible panel */
+.bible-panel { background:linear-gradient(180deg,var(--bg-1),var(--bg-2));
+               border:1px solid var(--line); border-radius:14px; padding:16px 20px; margin-bottom:14px; }
+.bible-panel summary { cursor:pointer; font-size:13px; font-weight:600; color:var(--text); list-style:none; display:flex; align-items:center; gap:10px; }
+.bible-panel summary::-webkit-details-marker { display:none; }
+.bible-panel summary::before { content:'▸'; transition:transform 150ms; font-size:10px; color:var(--text-dim); }
+.bible-panel[open] summary::before { transform:rotate(90deg); }
+.bible-panel summary .sub { font-size:11px; color:var(--text-mute); font-weight:400; margin-left:auto; }
+.bible-panel-body { padding-top:14px; display:flex; flex-direction:column; gap:14px; }
+.bible-section h4 { font-size:11px; letter-spacing:0.14em; text-transform:uppercase; color:var(--text-mute); margin:0 0 8px; }
+.bible-global { width:100%; min-height:70px; padding:8px 10px; border-radius:6px;
+                background:var(--bg); border:1px solid var(--line); color:var(--text);
+                font-size:12px; outline:0; font-family:inherit; line-height:1.5; resize:vertical; }
+.bible-global:focus { border-color:var(--teal); }
+.bible-list { display:flex; flex-direction:column; gap:8px; }
+.bible-item { display:grid; grid-template-columns: 120px 1fr auto; gap:10px; padding:8px 10px;
+              background:var(--bg-3); border:1px solid var(--line); border-radius:8px; align-items:start; }
+.bible-item input, .bible-item textarea {
+  width:100%; padding:5px 8px; border-radius:4px; background:var(--bg);
+  border:1px solid var(--line); color:var(--text); font-size:12px; outline:0; font-family:inherit;
+}
+.bible-item textarea { min-height:42px; resize:vertical; line-height:1.4; }
+.bible-item input:focus, .bible-item textarea:focus { border-color:var(--teal); }
+.bible-item .name-col { display:flex; flex-direction:column; gap:4px; }
+.bible-item .id-hint { font-size:10px; color:var(--text-mute); font-family:'JetBrains Mono',monospace; }
+
+/* shot character/location chips */
+.shot-fields { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
+.shot-fields select, .shot-fields input {
+  padding:4px 8px; border-radius:4px; background:var(--bg);
+  border:1px solid var(--line); color:var(--text); font-size:11px; outline:0; font-family:inherit;
+}
+.shot-fields select:focus, .shot-fields input:focus { border-color:var(--teal); }
+.shot-fields .mini-label { font-size:10px; color:var(--text-mute); letter-spacing:0.05em; text-transform:uppercase; align-self:center; margin-right:2px; }
+
+/* shot preview image */
+.shot-preview {
+  width:100%; max-width:320px; aspect-ratio:16/9;
+  background:#000; border-radius:6px; border:1px solid var(--line); overflow:hidden;
+  display:flex; align-items:center; justify-content:center;
+  position:relative;
+}
+.shot-preview img { width:100%; height:100%; object-fit:cover; display:block; }
+.shot-preview .regen-btn {
+  position:absolute; top:4px; right:4px; background:rgba(0,0,0,0.7); color:white;
+  font-size:10px; padding:3px 6px; border-radius:3px; cursor:pointer;
+  opacity:0; transition:opacity 150ms;
+}
+.shot-preview:hover .regen-btn { opacity:1; }
+.composed-prompt {
+  font-size:10px; color:var(--text-mute); font-family:'JetBrains Mono',monospace;
+  background:var(--bg); border:1px dashed var(--line); border-radius:4px;
+  padding:6px 8px; margin-top:4px; max-height:100px; overflow-y:auto; line-height:1.4;
+  white-space:pre-wrap;
+}
+
 /* empty states */
 .empty-state {
   text-align:center; padding:40px 20px; color:var(--text-dim);
@@ -376,20 +432,52 @@ input, select, textarea { font:inherit; color:inherit; }
         <div class="card">
           <div style="font-size:14px;font-weight:600;margin-bottom:6px;">剧本 / Script</div>
           <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">
-            用一段文字描述你想要的视频。点 Auto-storyboard 让 AI 拆成多个镜头。
+            用一段文字描述你想要的视频。点 Auto-storyboard 让 AI 同时出 Visual Bible（风格/角色/场景）和分镜。
           </div>
           <textarea class="script-box" id="scriptBox" placeholder="例如：一支年轻舞者在赛博朋克都市的屋顶跳了一段 20 秒的街舞，从日落到夜晚。"></textarea>
           <div class="story-actions">
             <button class="btn primary" onclick="autoStoryboard()">✨ Auto-storyboard</button>
             <button class="btn" onclick="addEmptyShot()">+ Add shot</button>
+            <button class="btn" onclick="generateAllPreviews()">🖼 Preview all</button>
             <button class="btn" onclick="generateAllShots()">▶ Generate all</button>
             <label class="toggle-row" style="margin-left:14px;">
               <input type="checkbox" id="chainToggle"/>
-              Chain shots (seamless transitions)
+              Chain shots
             </label>
             <span class="mono" style="font-size:11px;color:var(--text-mute);margin-left:auto;" id="storyHint"></span>
           </div>
         </div>
+
+        <!-- Visual Bible (collapsible) -->
+        <details class="bible-panel" id="biblePanel">
+          <summary>
+            📖 Visual Bible
+            <span class="sub" id="bibleSummary">总风格 + 角色 + 场景，会自动拼到每个镜头 prompt 里</span>
+          </summary>
+          <div class="bible-panel-body">
+            <div class="bible-section">
+              <h4>Visual style · 整体视觉风格</h4>
+              <textarea class="bible-global" id="bibleStyle" placeholder="例如：35mm 胶片质感，暖色调，浅景深，2D 扁平卡通描边"></textarea>
+            </div>
+            <div class="bible-section">
+              <h4 style="display:flex;align-items:center;gap:8px;">
+                Characters · 角色
+                <button class="btn small" onclick="bibleAddEntry('characters')">+ Character</button>
+              </h4>
+              <div class="bible-list" id="bibleChars"></div>
+            </div>
+            <div class="bible-section">
+              <h4 style="display:flex;align-items:center;gap:8px;">
+                Locations · 场景
+                <button class="btn small" onclick="bibleAddEntry('locations')">+ Location</button>
+              </h4>
+              <div class="bible-list" id="bibleLocs"></div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;">
+              <button class="btn primary" onclick="saveBible()">Save bible</button>
+            </div>
+          </div>
+        </details>
 
         <div class="shot-list" id="shotList"></div>
         <div class="empty-state hidden" id="shotsEmpty">
@@ -582,9 +670,91 @@ function renderProject() {
   $('setRatio').value = s.ratio || '16:9';
   $('setResolution').value = s.resolution || '480p';
   $('setAudio').checked = !!s.generate_audio;
+  // Bible
+  renderBible();
   renderElements();
   renderShots();
   updateStoryHint();
+}
+
+// =========================================================================
+// Visual Bible
+// =========================================================================
+function renderBible() {
+  const b = state.project.bible || { visual_bible: '', characters: [], locations: [] };
+  $('bibleStyle').value = b.visual_bible || '';
+  const charEls = (b.characters || []).length;
+  const locEls = (b.locations || []).length;
+  const has = (b.visual_bible || charEls > 0 || locEls > 0);
+  $('bibleSummary').textContent = has
+    ? `${charEls} 角色 · ${locEls} 场景 · ${(b.visual_bible || '').length} 字风格`
+    : '还没写 — 建议用 Auto-storyboard 自动生成';
+  $('biblePanel').open = has;
+  renderBibleList('chars', 'characters', b.characters || []);
+  renderBibleList('locs', 'locations', b.locations || []);
+}
+
+function renderBibleList(domId, kind, items) {
+  const el = $('bible' + (domId.charAt(0).toUpperCase() + domId.slice(1)));
+  el.innerHTML = '';
+  if (!items.length) {
+    el.innerHTML = `<div style="font-size:11px;color:var(--text-mute);padding:4px 0;">还没有 ${kind}，点上面的 + 按钮加一个</div>`;
+    return;
+  }
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i];
+    const row = document.createElement('div');
+    row.className = 'bible-item';
+    row.innerHTML = `
+      <div class="name-col">
+        <input value="${escapeHtml(it.name || '')}" placeholder="Name" data-bi-kind="${kind}" data-bi-idx="${i}" data-bi-field="name"/>
+        <span class="id-hint">${escapeHtml(it.id || '')}</span>
+      </div>
+      <textarea placeholder="Visual description (age, clothes, features...)" data-bi-kind="${kind}" data-bi-idx="${i}" data-bi-field="visual">${escapeHtml(it.visual || '')}</textarea>
+      <button class="btn small danger" onclick="bibleDelete('${kind}', ${i})">×</button>
+    `;
+    el.appendChild(row);
+  }
+}
+
+function bibleAddEntry(kind) {
+  const b = state.project.bible || { visual_bible: '', characters: [], locations: [] };
+  const list = b[kind] || [];
+  const id = `${kind === 'characters' ? 'char' : 'loc'}_${list.length + 1}`;
+  list.push({ id, name: '', visual: '' });
+  b[kind] = list;
+  state.project.bible = b;
+  renderBible();
+}
+
+function bibleDelete(kind, idx) {
+  const b = state.project.bible || {};
+  (b[kind] || []).splice(idx, 1);
+  state.project.bible = b;
+  renderBible();
+  renderShots();
+}
+
+async function saveBible() {
+  const b = state.project.bible || { visual_bible: '', characters: [], locations: [] };
+  b.visual_bible = $('bibleStyle').value.trim();
+  // collect updates from inputs
+  document.querySelectorAll('[data-bi-kind]').forEach(inp => {
+    const kind = inp.dataset.biKind;
+    const idx = parseInt(inp.dataset.biIdx, 10);
+    const field = inp.dataset.biField;
+    if (b[kind] && b[kind][idx]) b[kind][idx][field] = inp.value;
+  });
+  try {
+    const updated = await api(`/api/projects/${state.currentId}/bible`, {
+      method: 'PATCH',
+      body: JSON.stringify(b),
+    });
+    state.project.bible = updated.bible;
+    renderBible();
+    renderShots();
+    toast('Bible saved');
+  } catch (e) { toast(e.message, true); }
 }
 
 async function saveSettings(patch) {
@@ -742,33 +912,58 @@ async function deleteElement(eid) {
 function renderShots() {
   const list = $('shotList');
   const shots = state.project.shots || [];
+  const bible = state.project.bible || {};
+  const characters = bible.characters || [];
+  const locations = bible.locations || [];
+
   $('shotsEmpty').classList.toggle('hidden', shots.length > 0);
   list.innerHTML = '';
   for (let i = 0; i < shots.length; i++) {
     const s = shots[i];
     const el = document.createElement('div');
     el.className = 'shot-item';
+    const charOpts = characters.map(c => {
+      const sel = (s.character_ids || []).includes(c.id) ? 'selected' : '';
+      return `<option value="${escapeHtml(c.id)}" ${sel}>${escapeHtml(c.name || c.id)}</option>`;
+    }).join('');
+    const locOpts = `<option value="">(no location)</option>` + locations.map(l => {
+      const sel = s.location_id === l.id ? 'selected' : '';
+      return `<option value="${escapeHtml(l.id)}" ${sel}>${escapeHtml(l.name || l.id)}</option>`;
+    }).join('');
     el.innerHTML = `
       <div class="shot-idx">
         <div class="n">${String(i+1).padStart(2,'0')}</div>
         <div class="l">SHOT</div>
       </div>
       <div class="shot-body">
-        <textarea class="shot-prompt" placeholder="Describe this shot…" data-sid="${s.id}">${escapeHtml(s.prompt || '')}</textarea>
+        <textarea class="shot-prompt" placeholder="Describe the action in this shot…" data-sid="${s.id}">${escapeHtml(s.prompt || '')}</textarea>
+        <div class="shot-fields">
+          <span class="mini-label">Chars</span>
+          <select multiple size="1" data-sid="${s.id}" data-field="character_ids" style="min-width:140px;${characters.length === 0 ? 'opacity:0.5;' : ''}">
+            ${charOpts || '<option disabled>no characters defined</option>'}
+          </select>
+          <span class="mini-label">Location</span>
+          <select data-sid="${s.id}" data-field="location_id" style="min-width:120px;">
+            ${locOpts}
+          </select>
+          <span class="mini-label">Camera</span>
+          <input data-sid="${s.id}" data-field="camera" placeholder="wide / close-up / POV..." value="${escapeHtml(s.camera || '')}" style="width:160px;"/>
+        </div>
         <div class="shot-media">${renderShotMedia(s)}</div>
         <div class="shot-meta">
           <span class="status-chip ${s.status}">${s.status}${s.status === 'generating' ? '<span class="spin" style="margin-left:6px;"></span>' : ''}</span>
+          ${s.preview_url ? '<span class="chip" style="color:var(--teal);">🖼 preview locked</span>' : ''}
           ${(s.element_ids || []).map(eid => {
             const e = state.project.elements.find(x => x.id === eid);
             return e ? `<span class="chip"><img src="${escapeHtml(e.preview_url)}"/>${escapeHtml(e.name)}</span>` : '';
           }).join('')}
           <span class="chip clickable" onclick="openPicker('${s.id}')">+ Element</span>
-          ${(!s.element_ids || !s.element_ids.length) ? `<span class="chip" style="color:var(--yellow);" title="Pure text-to-video mode — Seedance will snap duration to 5 or 10 seconds. Attach an element for exact duration control.">⚠ no refs</span>` : ''}
           ${s.task_id && s.status === 'failed' ? `<span class="chip" title="${escapeHtml(s.task_id)}" style="color:var(--err);cursor:help;">× ${escapeHtml(friendlyError(s.task_id))}</span>` : ''}
         </div>
       </div>
       <div class="shot-right">
         <input type="number" class="duration-input" value="${s.duration_sec || 9}" min="3" max="15" data-sid="${s.id}"/>
+        <button class="btn small" onclick="previewShot('${s.id}')" title="Generate a still preview with Seedream (~¥0.3). Also becomes the first-frame reference for video generation.">🖼 Preview</button>
         <button class="btn small primary" onclick="generateShot('${s.id}')" ${s.status === 'generating' ? 'disabled' : ''}>
           ${s.status === 'done' ? '↻ Regen' : '▶ Generate'}
         </button>
@@ -783,13 +978,24 @@ function renderShots() {
   list.querySelectorAll('.duration-input').forEach(i => {
     i.addEventListener('change', () => saveShot(i.dataset.sid, {duration_sec: parseInt(i.value, 10) || 9}));
   });
+  list.querySelectorAll('select[data-field=location_id]').forEach(s => {
+    s.addEventListener('change', () => saveShot(s.dataset.sid, {location_id: s.value}));
+  });
+  list.querySelectorAll('input[data-field=camera]').forEach(s => {
+    s.addEventListener('blur', () => saveShot(s.dataset.sid, {camera: s.value}));
+  });
+  list.querySelectorAll('select[data-field=character_ids]').forEach(s => {
+    s.addEventListener('change', () => {
+      const ids = [...s.selectedOptions].map(o => o.value).filter(Boolean);
+      saveShot(s.dataset.sid, {character_ids: ids});
+    });
+  });
   $('shotsCount').textContent = shots.length;
   updateStoryHint();
-  // poll if any shot is generating
-  const anyGenerating = shots.some(s => s.status === 'generating');
-  if (anyGenerating && !state.pollTimer) {
+  const anyBusy = shots.some(s => s.status === 'generating') || state.previewingShots?.size;
+  if (anyBusy && !state.pollTimer) {
     state.pollTimer = setInterval(pollShots, 6000);
-  } else if (!anyGenerating && state.pollTimer) {
+  } else if (!anyBusy && state.pollTimer) {
     clearInterval(state.pollTimer);
     state.pollTimer = null;
   }
@@ -805,7 +1011,44 @@ function renderShotMedia(s) {
   if (s.status === 'failed') {
     return `<div class="shot-placeholder" style="color:var(--err);">Failed — click Regen to retry</div>`;
   }
-  return `<div class="shot-placeholder">Not generated yet — click ▶ Generate</div>`;
+  // draft: show Seedream preview if present
+  if (s.preview_url) {
+    return `<div class="shot-preview">
+      <img src="${escapeHtml(s.preview_url)}" alt="preview"/>
+      <button class="regen-btn" onclick="previewShot('${s.id}')">↻ Re-preview</button>
+    </div>`;
+  }
+  return `<div class="shot-placeholder">Preview first, then Generate video</div>`;
+}
+
+async function previewShot(sid) {
+  state.previewingShots = state.previewingShots || new Set();
+  state.previewingShots.add(sid);
+  toast('Generating preview (~10-15s)…');
+  try {
+    const shot = await api(`/api/projects/${state.currentId}/shots/${sid}/preview`,
+                          { method: 'POST' });
+    const idx = state.project.shots.findIndex(s => s.id === sid);
+    if (idx >= 0) state.project.shots[idx] = shot;
+    renderShots();
+    toast('Preview ready');
+  } catch (e) { toast(e.message, true); }
+  finally {
+    state.previewingShots.delete(sid);
+  }
+}
+
+async function generateAllPreviews() {
+  const shots = state.project.shots || [];
+  if (!shots.length) { toast('No shots yet — run Auto-storyboard first', true); return; }
+  if (!confirm(`Generate Seedream previews for all ${shots.length} shots? ~¥${(shots.length * 0.3).toFixed(1)} total, ~${shots.length * 12}s wall time.`)) return;
+  try {
+    await api(`/api/projects/${state.currentId}/storyboard/previews`,
+              { method: 'POST' });
+    toast(`Queued ${shots.length} previews — polling for results…`);
+    // Kick off polling to pick up previews as they land
+    if (!state.pollTimer) state.pollTimer = setInterval(pollShots, 4000);
+  } catch (e) { toast(e.message, true); }
 }
 
 async function pollShots() {
@@ -937,13 +1180,15 @@ async function deleteShot(sid) {
 async function autoStoryboard() {
   const script = $('scriptBox').value.trim();
   if (!script) { toast('Write a script first', true); return; }
-  if (state.project.shots && state.project.shots.length && !confirm(`This will replace the ${state.project.shots.length} existing shots. Continue?`)) return;
+  if (state.project.shots && state.project.shots.length && !confirm(`This will replace the existing bible and ${state.project.shots.length} shots. Continue?`)) return;
   try {
-    const { shots } = await api(`/api/projects/${state.currentId}/storyboard/auto`, { method:'POST', body: JSON.stringify({script}) });
+    const res = await api(`/api/projects/${state.currentId}/storyboard/auto`, { method:'POST', body: JSON.stringify({script}) });
     state.project.script = script;
-    state.project.shots = shots;
+    state.project.bible = res.bible || state.project.bible;
+    state.project.shots = res.shots || [];
+    renderBible();
     renderShots();
-    toast(`Generated ${shots.length} shots`);
+    toast(`Generated bible + ${res.shots.length} shots`);
     switchTab('storyboard');
   } catch (e) { toast(e.message, true); }
 }
