@@ -132,24 +132,17 @@ def _run_one_shot(project_id: str, shot_id: str, chain_from_prev: bool):
                 _upload_file(ff_local, ff_key)
                 first_frame_url = _presign(ff_key)
 
-        # Build Seedance payload
-        duration = int(shot.get("duration_sec", 9))
-        content = _build_payload_content(
-            prompt=shot["prompt"] or "A cinematic scene.",
-            element_urls=element_urls,
-            first_frame_url=first_frame_url,
-        )
-        payload = {
-            "model": _SEEDANCE_MODEL,
-            "content": content,
-            "generate_audio": False,
-            "ratio": "16:9",
-            "resolution": "480p",
-            "duration": duration,
-            "watermark": False,
-        }
+        # Seedance's fast model has different duration constraints depending on
+        # whether we give it any references:
+        #   - pure t2v (no refs): only 5 or 10 seconds accepted
+        #   - i2v / r2v (with image or video ref): 5-12 seconds
+        has_ref = bool(element_urls) or bool(first_frame_url)
+        requested = int(shot.get("duration_sec", 9))
+        if has_ref:
+            duration = max(5, min(12, requested))
+        else:
+            duration = 5 if requested <= 7 else 10
 
-        # Submit
         task_id = models.seedance_submit(
             _ARK_KEY, _SEEDANCE_MODEL,
             prompt=shot["prompt"] or "A cinematic scene.",

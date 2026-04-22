@@ -648,6 +648,7 @@ function renderShots() {
             return e ? `<span class="chip"><img src="${escapeHtml(e.preview_url)}"/>${escapeHtml(e.name)}</span>` : '';
           }).join('')}
           <span class="chip clickable" onclick="openPicker('${s.id}')">+ Element</span>
+          ${(!s.element_ids || !s.element_ids.length) ? `<span class="chip" style="color:var(--yellow);" title="Pure text-to-video mode — Seedance will snap duration to 5 or 10 seconds. Attach an element for exact duration control.">⚠ no refs</span>` : ''}
           ${s.task_id && s.status === 'failed' ? `<span class="chip" title="${escapeHtml(s.task_id)}" style="color:var(--err);">× ${escapeHtml(s.task_id.slice(0,40))}</span>` : ''}
         </div>
       </div>
