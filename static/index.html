@@ -309,9 +309,9 @@ input, select, textarea { font:inherit; color:inherit; }
         <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);">
           Resolution
           <select id="setResolution" onchange="saveSettings({resolution: this.value})" class="duration-input" style="width:auto;">
-            <option value="480p">480p · 便宜</option>
-            <option value="720p">720p · 标准</option>
-            <option value="1080p">1080p · 贵</option>
+            <option value="480p">480p · 标清（最便宜）</option>
+            <option value="720p">720p · 高清</option>
+            <option value="1080p">1080p · 超清（最贵）</option>
           </select>
         </label>
         <label class="toggle-row" style="font-size:12px;">
@@ -418,9 +418,11 @@ input, select, textarea { font:inherit; color:inherit; }
     <textarea id="genPrompt" placeholder="e.g. A confident young female dancer in cyberpunk streetwear..."></textarea>
     <label style="margin-top:10px;">Size</label>
     <select id="genSize">
-      <option value="1024x1024">1024×1024 (方形)</option>
-      <option value="1024x1792">1024×1792 (竖)</option>
-      <option value="1792x1024">1792×1024 (横)</option>
+      <option value="2048x2048">2048×2048 (方形)</option>
+      <option value="1440x2560">1440×2560 (竖 9:16)</option>
+      <option value="2560x1440">2560×1440 (横 16:9)</option>
+      <option value="1792x2304">1792×2304 (竖 3:4)</option>
+      <option value="2304x1792">2304×1792 (横 4:3)</option>
     </select>
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
@@ -917,6 +919,9 @@ function friendlyError(raw) {
   }
   if (s.includes('duration') && s.includes('not valid')) {
     return 'duration not valid for this mode (attach a reference for 5-12s, t2v uses 5 or 10)';
+  }
+  if (s.includes('resolution') && s.includes('not valid')) {
+    return 'resolution not valid for fast model with refs — use 480p, or switch to Pro';
   }
   if (s.startsWith('seedance submit 400')) {
     const m = s.match(/"message":"([^"]+)"/);

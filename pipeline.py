@@ -21,18 +21,33 @@ JOBS_DIR: Path | None = None
 TOS_BUCKET: str | None = None
 _TOS_CLIENT = None
 _ARK_KEY: str | None = None
-_SEEDANCE_MODEL: str | None = None
+_SEEDANCE_MODELS: dict[str, str] = {}
 
 
 def configure(tos_client, tos_bucket: str, jobs_dir: Path,
-              ark_key: str, seedance_model: str):
-    """Call once at server startup."""
-    global _TOS_CLIENT, TOS_BUCKET, JOBS_DIR, _ARK_KEY, _SEEDANCE_MODEL
+              ark_key: str, seedance_models: dict[str, str]):
+    """Call once at server startup. `seedance_models` is a dict of tier -> model id,
+    with keys 'fast', 'std', 'pro'."""
+    global _TOS_CLIENT, TOS_BUCKET, JOBS_DIR, _ARK_KEY, _SEEDANCE_MODELS
     _TOS_CLIENT = tos_client
     TOS_BUCKET = tos_bucket
     JOBS_DIR = jobs_dir
     _ARK_KEY = ark_key
-    _SEEDANCE_MODEL = seedance_model
+    _SEEDANCE_MODELS = seedance_models
+
+
+def _pick_model(resolution: str, has_ref: bool) -> str:
+    """Return the cheapest Seedance model that supports the requested
+    resolution + reference mode combo.
+    - 480p  → fast (works for all modes)
+    - 720p  → std (fast doesn't support 720p with refs)
+    - 1080p → pro
+    """
+    if resolution == "1080p":
+        return _SEEDANCE_MODELS.get("pro") or _SEEDANCE_MODELS["fast"]
+    if resolution == "720p":
+        return _SEEDANCE_MODELS.get("std") or _SEEDANCE_MODELS.get("pro") or _SEEDANCE_MODELS["fast"]
+    return _SEEDANCE_MODELS["fast"]
 
 
 # ---------------------------------------------------------------------------
@@ -149,8 +164,12 @@ def _run_one_shot(project_id: str, shot_id: str, chain_from_prev: bool):
         resolution = settings.get("resolution", "480p")
         gen_audio = bool(settings.get("generate_audio", False))
 
+        # Auto-pick the cheapest Seedance model tier that supports the
+        # requested resolution — user doesn't need to know fast/std/pro exist.
+        model_id = _pick_model(resolution, has_ref)
+
         task_id = models.seedance_submit(
-            _ARK_KEY, _SEEDANCE_MODEL,
+            _ARK_KEY, model_id,
             prompt=shot["prompt"] or "A cinematic scene.",
             image_urls=([first_frame_url] if first_frame_url else []) + element_urls,
             ratio=ratio, resolution=resolution,

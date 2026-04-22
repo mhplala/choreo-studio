@@ -56,9 +56,16 @@ if not AUTH_USER or not AUTH_PASS:
     raise RuntimeError("AUTH_USER and AUTH_PASS must be set in .env")
 
 ARK_API_KEY = env["ARK_API_KEY"]
-SEEDREAM_MODEL = env.get("SEEDREAM_MODEL", "doubao-seedream-3-0-t2i-250415")
+SEEDREAM_MODEL = env.get("SEEDREAM_MODEL", "doubao-seedream-4-5-251128")
 LLM_MODEL = env.get("LLM_MODEL", "doubao-1-5-lite-32k-250115")
-SEEDANCE_MODEL = env.get("SEEDANCE_MODEL", "doubao-seedance-2-0-fast-260128")
+# Seedance tiered models — we auto-pick one based on the project's resolution.
+SEEDANCE_MODELS = {
+    "fast": env.get("SEEDANCE_FAST", "doubao-seedance-2-0-fast-260128"),
+    "std":  env.get("SEEDANCE_STD",  "doubao-seedance-2-0-260128"),
+    "pro":  env.get("SEEDANCE_PRO",  "doubao-seedance-2-0-pro-260215"),
+}
+# Back-compat alias for pipeline.configure()
+SEEDANCE_MODEL = SEEDANCE_MODELS["fast"]
 
 TOS_BUCKET = env["TOS_BUCKET"]
 tos_client = tos.TosClientV2(
@@ -67,7 +74,7 @@ tos_client = tos.TosClientV2(
 )
 
 storage.init_db(DB_PATH)
-pipeline.configure(tos_client, TOS_BUCKET, JOBS_DIR, ARK_API_KEY, SEEDANCE_MODEL)
+pipeline.configure(tos_client, TOS_BUCKET, JOBS_DIR, ARK_API_KEY, SEEDANCE_MODELS)
 
 # On startup, mark any shots stuck in 'generating' (worker threads died with
 # the previous process) as failed so the UI doesn't show a phantom spinner.
@@ -223,7 +230,7 @@ def generate_element(pid):
         return jsonify({"error": "prompt is required"}), 400
     kind = body.get("kind", "character")
     name = (body.get("name") or prompt[:40]).strip()
-    size = body.get("size", "1024x1024")
+    size = body.get("size", "2048x2048")
     try:
         url = models.seedream_generate(ARK_API_KEY, SEEDREAM_MODEL, prompt, size=size)
     except Exception as e:
