@@ -1,0 +1,29 @@
+[Unit]
+Description=Choreo Studio (multi-shot AI video creation)
+After=network.target
+
+[Service]
+Type=simple
+User=choreo
+Group=choreo
+WorkingDirectory=/opt/choreo-studio
+Environment=PATH=/opt/choreo-studio/venv/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/opt/choreo-studio/venv/bin/gunicorn \
+    --workers 1 \
+    --threads 8 \
+    --bind 127.0.0.1:5002 \
+    --timeout 120 \
+    --access-logfile /opt/choreo-studio/logs/access.log \
+    --error-logfile /opt/choreo-studio/logs/error.log \
+    server:app
+Restart=on-failure
+RestartSec=5
+
+# Filesystem hardening
+ProtectSystem=full
+ProtectHome=true
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
