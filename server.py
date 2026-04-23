@@ -463,7 +463,8 @@ def generate_all_previews(pid):
 @app.route("/api/projects/<pid>/export", methods=["POST"])
 @require_auth
 def export_project(pid):
-    if not storage.get_project(pid):
+    p = storage.get_project(pid)
+    if not p:
         return jsonify({"error": "project not found"}), 404
     done = [s for s in storage.list_shots(pid) if s.get("status") == "done"]
     if not done:
@@ -471,8 +472,15 @@ def export_project(pid):
     state = pipeline.get_export_state(pid)
     if state.get("status") == "running":
         return jsonify({"error": "already exporting"}), 409
-    pipeline.enqueue_export(pid)
-    return jsonify({"ok": True, "shots": len(done)}), 202
+    body = request.get_json() or {}
+    ratio = body.get("ratio") or (p.get("settings") or {}).get("ratio") or "16:9"
+    fit = body.get("fit") or "contain"
+    short_side = int(body.get("short_side") or 720)
+    if fit not in ("contain", "cover", "fill"):
+        fit = "contain"
+    pipeline.enqueue_export(pid, ratio=ratio, fit=fit, short_side=short_side)
+    return jsonify({"ok": True, "shots": len(done),
+                    "ratio": ratio, "fit": fit, "short_side": short_side}), 202
 
 
 @app.route("/api/projects/<pid>/export/status")

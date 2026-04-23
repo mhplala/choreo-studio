@@ -350,10 +350,57 @@ def enqueue_preview(project_id: str, shot_id: str, seedream_model: str):
 # ---------------------------------------------------------------------------
 # Export: stitch all done shots in order into a single MP4 via ffmpeg concat
 # ---------------------------------------------------------------------------
-def export_project(project_id: str) -> dict:
-    """Concat all done shots (in order_idx order) into one final.mp4, upload
-    to TOS, record on the project. Returns {'tos_key': ..., 'duration': ...,
-    'shot_count': N} on success, or raises.
+def _ratio_to_dim(ratio: str, short_side: int = 720) -> tuple[int, int]:
+    """Return (w, h) for a target output aspect ratio, rounded to even."""
+    try:
+        a, b = ratio.split(":")
+        ar = float(a) / float(b)
+    except Exception:
+        ar = 16 / 9
+    if ar >= 1:
+        h = short_side
+        w = int(round(h * ar))
+    else:
+        w = short_side
+        h = int(round(w / ar))
+    # Round to even (h264 requires it)
+    w = w + (w % 2)
+    h = h + (h % 2)
+    return w, h
+
+
+def _fit_filter(out_w: int, out_h: int, fit: str) -> str:
+    """ffmpeg filter fragment that takes an input and produces out_w×out_h,
+    applying the chosen fit mode."""
+    if fit == "cover":
+        return (f"scale={out_w}:{out_h}:force_original_aspect_ratio=increase,"
+                f"crop={out_w}:{out_h}")
+    if fit == "fill":
+        return f"scale={out_w}:{out_h}"
+    # default: contain (black bars)
+    return (f"scale={out_w}:{out_h}:force_original_aspect_ratio=decrease,"
+            f"pad={out_w}:{out_h}:(ow-iw)/2:(oh-ih)/2:color=black")
+
+
+def _probe_duration(path: Path) -> float:
+    r = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", str(path)],
+        check=True, capture_output=True, text=True,
+    )
+    return float(r.stdout.strip() or 0)
+
+
+def export_project(project_id: str,
+                   ratio: str = "16:9",
+                   fit: str = "contain",
+                   short_side: int = 720) -> dict:
+    """Render the project timeline into one MP4 with:
+    - trim_in / trim_out per shot
+    - transitions between adjacent shots (cut / fade / wipe / dissolve)
+    - uniform output aspect ratio + fit mode (contain / cover / fill)
+
+    Skips shots without a finished video.
     """
     shots = [s for s in storage.list_shots(project_id)
              if s.get("status") == "done" and s.get("video_tos_key")]
@@ -363,8 +410,11 @@ def export_project(project_id: str) -> dict:
     work = JOBS_DIR / f"export_{project_id}_{int(time.time())}"
     work.mkdir(parents=True, exist_ok=True)
 
-    # Download each shot's video to a local file, record ordered list.
-    local_paths: list[Path] = []
+    out_w, out_h = _ratio_to_dim(ratio, short_side=short_side)
+    fit_filter = _fit_filter(out_w, out_h, fit)
+
+    # Download each shot, compute effective duration after trim.
+    clips = []
     for i, s in enumerate(shots):
         url = _presign(s["video_tos_key"])
         local = work / f"seg_{i:03d}.mp4"
@@ -373,54 +423,149 @@ def export_project(project_id: str) -> dict:
             with open(local, "wb") as f:
                 for chunk in r.iter_content(1 << 20):
                     f.write(chunk)
-        local_paths.append(local)
+        src_dur = _probe_duration(local)
+        tin = float(s.get("trim_in") or 0)
+        tout = s.get("trim_out")
+        tout = float(tout) if tout is not None else src_dur
+        tin = max(0.0, min(tin, src_dur))
+        tout = max(tin + 0.1, min(tout, src_dur))
+        clips.append({
+            "path": local, "src_dur": src_dur,
+            "tin": tin, "tout": tout, "eff_dur": tout - tin,
+            "trans_kind": (s.get("transition_in_kind") or "cut").lower(),
+            "trans_dur": float(s.get("transition_in_dur") or 0.5),
+        })
 
-    # Write ffmpeg concat list (relative filenames so ffmpeg finds them in -cwd).
-    concat_txt = work / "concat.txt"
-    concat_txt.write_text("".join(f"file '{p.name}'\n" for p in local_paths))
+    # Map of xfade transition names. "cut" means no xfade; "fade" is the classic.
+    XFADE_MAP = {
+        "fade": "fade",
+        "dissolve": "dissolve",
+        "wipeleft": "wipeleft",
+        "wiperight": "wiperight",
+        "wipeup": "wipeup",
+        "wipedown": "wipedown",
+        "slideleft": "slideleft",
+        "slideright": "slideright",
+        "circleopen": "circleopen",
+        "fadeblack": "fadeblack",
+    }
 
     final_local = work / "final.mp4"
-    # Use concat demuxer with re-encode to survive mismatched codecs/resolutions.
-    subprocess.run(
-        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_txt),
-         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
-         "-c:a", "aac", "-b:a", "192k",
-         "-movflags", "+faststart",
-         str(final_local)],
-        check=True, capture_output=True, cwd=str(work),
-    )
 
-    # Probe duration, upload to TOS.
-    probe = subprocess.run(
-        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-         "-of", "default=noprint_wrappers=1:nokey=1", str(final_local)],
-        check=True, capture_output=True, text=True,
-    )
-    duration = float(probe.stdout.strip() or 0)
+    if len(clips) == 1:
+        # Simple single-clip path: just apply trim + fit.
+        c = clips[0]
+        vf = (f"trim=start={c['tin']}:end={c['tout']},setpts=PTS-STARTPTS,"
+              f"{fit_filter},setsar=1")
+        af = f"atrim=start={c['tin']}:end={c['tout']},asetpts=PTS-STARTPTS"
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", str(c["path"]),
+             "-vf", vf, "-af", af,
+             "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+             "-c:a", "aac", "-b:a", "192k",
+             "-movflags", "+faststart",
+             str(final_local)],
+            check=True, capture_output=True,
+        )
+    else:
+        # Multi-clip path: filter_complex with per-clip trim + fit, then
+        # sequentially xfade/concat adjacent clips.
+        cmd = ["ffmpeg", "-y"]
+        for c in clips:
+            cmd += ["-i", str(c["path"])]
 
+        # Build v0, v1, ... and a0, a1, ... streams after per-clip trim + fit.
+        fc_parts = []
+        for i, c in enumerate(clips):
+            fc_parts.append(
+                f"[{i}:v]trim=start={c['tin']:.3f}:end={c['tout']:.3f},"
+                f"setpts=PTS-STARTPTS,{fit_filter},setsar=1,"
+                f"format=yuv420p,fps=24[v{i}]"
+            )
+            fc_parts.append(
+                f"[{i}:a]atrim=start={c['tin']:.3f}:end={c['tout']:.3f},"
+                f"asetpts=PTS-STARTPTS,aresample=44100[a{i}]"
+            )
+
+        # Chain xfade / concat through the clip list.
+        prev_v = "v0"
+        prev_a = "a0"
+        running = clips[0]["eff_dur"]
+        for i in range(1, len(clips)):
+            c = clips[i]
+            kind = c["trans_kind"]
+            tdur = min(c["trans_dur"], clips[i - 1]["eff_dur"] - 0.1, c["eff_dur"] - 0.1)
+            tdur = max(0.1, tdur) if kind != "cut" else 0.0
+
+            next_v = f"vx{i}"
+            next_a = f"ax{i}"
+
+            if kind == "cut" or kind not in XFADE_MAP:
+                # Concat video + audio, no cross-fade.
+                fc_parts.append(
+                    f"[{prev_v}][v{i}]concat=n=2:v=1:a=0[{next_v}]"
+                )
+                fc_parts.append(
+                    f"[{prev_a}][a{i}]concat=n=2:v=0:a=1[{next_a}]"
+                )
+                running += c["eff_dur"]
+            else:
+                xf = XFADE_MAP[kind]
+                offset = running - tdur
+                fc_parts.append(
+                    f"[{prev_v}][v{i}]xfade=transition={xf}:"
+                    f"duration={tdur:.3f}:offset={offset:.3f}[{next_v}]"
+                )
+                fc_parts.append(
+                    f"[{prev_a}][a{i}]acrossfade=d={tdur:.3f}[{next_a}]"
+                )
+                running = running + c["eff_dur"] - tdur
+
+            prev_v, prev_a = next_v, next_a
+
+        filter_complex = ";".join(fc_parts)
+        cmd += [
+            "-filter_complex", filter_complex,
+            "-map", f"[{prev_v}]", "-map", f"[{prev_a}]",
+            "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+            "-c:a", "aac", "-b:a", "192k",
+            "-movflags", "+faststart",
+            str(final_local),
+        ]
+        subprocess.run(cmd, check=True, capture_output=True)
+
+    duration = _probe_duration(final_local)
     key = f"dance-gen/studio/projects/{project_id}/exports/final_{int(time.time())}.mp4"
     _TOS_CLIENT.put_object_from_file(TOS_BUCKET, key, str(final_local))
 
-    # Clean up local working dir (optional — leave for debug / allow disk cleanup).
-    # shutil.rmtree(work, ignore_errors=True)
-
-    return {"tos_key": key, "duration": duration, "shot_count": len(shots)}
+    return {
+        "tos_key": key, "duration": duration, "shot_count": len(shots),
+        "ratio": ratio, "fit": fit, "width": out_w, "height": out_h,
+    }
 
 
 _EXPORT_STATE: dict[str, dict] = {}  # project_id -> {'status', 'result', 'error'}
 
 
-def enqueue_export(project_id: str):
+def enqueue_export(project_id: str, ratio: str = "16:9",
+                   fit: str = "contain", short_side: int = 720):
     """Kick off export in a background thread; frontend polls
     GET /api/projects/:pid/export/status to observe progress."""
     _EXPORT_STATE[project_id] = {"status": "running", "started_at": time.time()}
 
     def _runner():
         try:
-            result = export_project(project_id)
+            result = export_project(project_id, ratio=ratio, fit=fit, short_side=short_side)
             _EXPORT_STATE[project_id] = {
                 "status": "done",
                 "result": result,
+                "finished_at": time.time(),
+            }
+        except subprocess.CalledProcessError as e:
+            stderr = (e.stderr or b"").decode(errors="replace")[-600:]
+            _EXPORT_STATE[project_id] = {
+                "status": "failed",
+                "error": f"ffmpeg: {stderr}",
                 "finished_at": time.time(),
             }
         except Exception as e:

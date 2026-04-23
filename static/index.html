@@ -266,6 +266,44 @@ input, select, textarea { font:inherit; color:inherit; }
 .shot-fields select:focus, .shot-fields input:focus { border-color:var(--teal); }
 .shot-fields .mini-label { font-size:10px; color:var(--text-mute); letter-spacing:0.05em; text-transform:uppercase; align-self:center; margin-right:2px; }
 
+/* timeline */
+.tl-row {
+  display:grid; grid-template-columns:48px 280px 1fr auto; gap:14px;
+  padding:10px; background:var(--bg-2); border:1px solid var(--line);
+  border-radius:10px; align-items:center; position:relative;
+  transition:border-color 120ms, background 120ms;
+}
+.tl-row.dragging { opacity:0.4; }
+.tl-row.drop-target { border-color:var(--teal); background:var(--bg-3); }
+.tl-drag-handle {
+  cursor:grab; color:var(--text-mute); font-size:16px;
+  padding:4px; user-select:none;
+}
+.tl-drag-handle:active { cursor:grabbing; }
+.tl-video { width:100%; aspect-ratio:16/9; border-radius:6px; background:#000; }
+.tl-trim { display:flex; gap:8px; align-items:center; font-size:11px; color:var(--text-dim); margin-top:6px; }
+.tl-trim input {
+  width:64px; padding:3px 6px; border-radius:3px;
+  background:var(--bg); border:1px solid var(--line); color:var(--text);
+  font-family:'JetBrains Mono',monospace; font-size:11px;
+}
+.tl-transition {
+  position:absolute; left:50%; top:-14px; transform:translateX(-50%);
+  display:flex; gap:4px; align-items:center; z-index:5;
+}
+.tl-transition select {
+  padding:2px 6px; border-radius:100px; font-size:10px;
+  background:var(--bg-3); border:1px solid var(--line-2); color:var(--text-dim);
+  font-family:inherit; cursor:pointer;
+}
+.tl-transition select:hover { color:var(--text); }
+.tl-transition .dur {
+  width:38px; padding:1px 4px; border-radius:3px; font-size:10px;
+  background:var(--bg-3); border:1px solid var(--line-2); color:var(--text-dim);
+  font-family:'JetBrains Mono',monospace;
+}
+.tl-transition .dur[disabled] { opacity:0.3; }
+
 /* shot preview image */
 .shot-preview {
   width:100%; max-width:320px; aspect-ratio:16/9;
@@ -513,29 +551,27 @@ input, select, textarea { font:inherit; color:inherit; }
           <div>
             <div style="font-size:14px;font-weight:600;">Timeline · 成片导出</div>
             <div style="font-size:12px;color:var(--text-dim);margin-top:2px;" id="timelineHint">
-              按顺序串起所有已生成的镜头，合成一个 mp4。
+              拖拽重排 · trim in/out · 镜头间选转场 · 导出指定比例
             </div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;">
             <span class="mono" style="font-size:11px;color:var(--text-mute);" id="exportStatus"></span>
-            <button class="btn primary" id="exportBtn" onclick="exportProject()">📼 Export MP4</button>
+            <button class="btn primary" id="exportBtn" onclick="openExportModal()">📼 Export…</button>
           </div>
         </div>
 
-        <!-- Final combined video (shown after successful export) -->
         <div class="card hidden" id="finalCard">
-          <div style="font-size:14px;font-weight:600;margin-bottom:10px;">最终成片</div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:10px;">最终成片 <span id="finalMeta" class="mono" style="font-size:11px;color:var(--text-mute);margin-left:8px;"></span></div>
           <video id="finalVideo" controls playsinline style="width:100%;max-width:720px;border-radius:8px;background:#000;"></video>
           <div style="margin-top:10px;">
             <a id="finalDownload" class="btn" download>⬇ Download</a>
           </div>
         </div>
 
-        <!-- Strip of shots in order -->
-        <div style="font-size:11px;color:var(--text-mute);letter-spacing:0.14em;text-transform:uppercase;margin:10px 4px;">
-          Shots in order
+        <div style="font-size:11px;color:var(--text-mute);letter-spacing:0.14em;text-transform:uppercase;margin:18px 4px 6px;">
+          Shots in order — drag ⠿ to reorder
         </div>
-        <div id="timelineStrip" style="display:flex;flex-direction:column;gap:10px;"></div>
+        <div id="timelineStrip" style="display:flex;flex-direction:column;gap:20px;"></div>
       </div>
     </div>
 
@@ -601,6 +637,46 @@ input, select, textarea { font:inherit; color:inherit; }
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn primary" id="genSubmit" onclick="submitGenerate()">✨ Generate</button>
+    </div>
+  </div>
+</div>
+
+<!-- Export modal -->
+<div class="modal-backdrop hidden" id="exportModal">
+  <div class="modal">
+    <h3>📼 Export MP4</h3>
+    <div class="modal-sub">所有 done 状态的 shot 会按 timeline 顺序合成，未生成的跳过。</div>
+    <div class="row">
+      <div>
+        <label>Output ratio</label>
+        <select id="expRatio">
+          <option value="">(match project — default)</option>
+          <option value="16:9">16:9 横屏</option>
+          <option value="9:16">9:16 竖屏</option>
+          <option value="1:1">1:1 方形</option>
+          <option value="4:3">4:3</option>
+          <option value="3:4">3:4</option>
+          <option value="21:9">21:9 超宽</option>
+        </select>
+      </div>
+      <div>
+        <label>Fit mode</label>
+        <select id="expFit">
+          <option value="contain">Contain（加黑边，不裁剪）</option>
+          <option value="cover">Cover（裁切铺满）</option>
+          <option value="fill">Fill（拉伸，会变形）</option>
+        </select>
+      </div>
+    </div>
+    <label>Resolution tier</label>
+    <select id="expShort">
+      <option value="480">480p · 便宜</option>
+      <option value="720" selected>720p · 标准</option>
+      <option value="1080">1080p · 高清</option>
+    </select>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" onclick="exportProject()">Export</button>
     </div>
   </div>
 </div>
@@ -946,47 +1022,166 @@ function switchTab(name) {
 // =========================================================================
 // Timeline
 // =========================================================================
+const TRANSITIONS = [
+  { v: 'cut', label: 'Cut' },
+  { v: 'fade', label: 'Fade' },
+  { v: 'dissolve', label: 'Dissolve' },
+  { v: 'fadeblack', label: 'Fade to black' },
+  { v: 'wipeleft', label: 'Wipe ←' },
+  { v: 'wiperight', label: 'Wipe →' },
+  { v: 'wipeup', label: 'Wipe ↑' },
+  { v: 'wipedown', label: 'Wipe ↓' },
+  { v: 'slideleft', label: 'Slide ←' },
+  { v: 'slideright', label: 'Slide →' },
+  { v: 'circleopen', label: 'Circle open' },
+];
+
 function renderTimeline() {
   const strip = $('timelineStrip');
   const shots = state.project?.shots || [];
   const done = shots.filter(s => s.status === 'done');
   const total = shots.length;
 
-  // Update hint + button state
   const hintEl = $('timelineHint');
   const btn = $('exportBtn');
   if (!total) {
     hintEl.textContent = '还没有镜头。去 Storyboard 里建几个。';
     btn.disabled = true;
   } else if (!done.length) {
-    hintEl.textContent = `${total} 个镜头，0 个已生成。先去 Storyboard 生成视频再来导出。`;
+    hintEl.textContent = `${total} 个镜头，0 个已生成。`;
     btn.disabled = true;
   } else {
-    const totalSec = done.reduce((sum, s) => sum + (s.duration_sec || 9), 0);
-    hintEl.textContent = `${done.length}/${total} 已生成 · 合成后约 ${totalSec}s · 跳过未生成的`;
+    const effSec = done.reduce((sum, s) => {
+      const tin = s.trim_in || 0;
+      const tout = (s.trim_out !== null && s.trim_out !== undefined) ? s.trim_out : (s.duration_sec || 9);
+      return sum + Math.max(0, tout - tin);
+    }, 0);
+    hintEl.textContent = `${done.length}/${total} 已生成 · 有效时长 ~${effSec.toFixed(1)}s · 拖拽重排 · 跳过未生成的`;
     btn.disabled = false;
   }
 
-  // Render shot strip in order
   strip.innerHTML = '';
   for (let i = 0; i < shots.length; i++) {
     const s = shots[i];
+    const srcDur = s.duration_sec || 9;
+    const tin = s.trim_in || 0;
+    const tout = (s.trim_out !== null && s.trim_out !== undefined) ? s.trim_out : srcDur;
+    const effDur = Math.max(0, tout - tin);
+
     const row = document.createElement('div');
-    row.style.cssText = 'display:grid;grid-template-columns:48px 320px 1fr;gap:14px;padding:10px;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;align-items:center;';
+    row.className = 'tl-row';
+    row.draggable = true;
+    row.dataset.sid = s.id;
+    row.dataset.idx = i;
+
+    const transHtml = i > 0 ? `
+      <div class="tl-transition">
+        <select data-sid="${s.id}" data-field="transition_in_kind" title="Transition from previous shot">
+          ${TRANSITIONS.map(t => `<option value="${t.v}" ${s.transition_in_kind === t.v ? 'selected' : ''}>${t.label}</option>`).join('')}
+        </select>
+        <input type="number" class="dur" data-sid="${s.id}" data-field="transition_in_dur"
+               value="${(s.transition_in_dur ?? 0.5).toFixed(2)}" min="0.1" max="3" step="0.1"
+               ${(s.transition_in_kind || 'cut') === 'cut' ? 'disabled' : ''}
+               title="Transition duration (s)"/>
+      </div>` : '';
+
     row.innerHTML = `
-      <div class="shot-idx"><div class="n">${String(i+1).padStart(2,'0')}</div><div class="l">SHOT</div></div>
-      <div>${renderTimelineMedia(s)}</div>
+      ${transHtml}
+      <div class="tl-drag-handle" title="Drag to reorder">⠿ ${String(i+1).padStart(2,'0')}</div>
       <div>
-        <div style="font-size:12px;color:var(--text);line-height:1.4;margin-bottom:6px;">${escapeHtml((s.prompt || '').slice(0, 120))}${(s.prompt || '').length > 120 ? '…' : ''}</div>
-        <div style="font-size:11px;color:var(--text-dim);display:flex;gap:8px;flex-wrap:wrap;">
-          <span class="status-chip ${s.status}">${s.status}</span>
-          <span class="chip">${s.duration_sec || 9}s</span>
-          ${s.camera ? `<span class="chip">${escapeHtml(s.camera)}</span>` : ''}
+        ${renderTimelineMedia(s)}
+        <div class="tl-trim">
+          <span style="font-family:'JetBrains Mono',monospace;">trim</span>
+          <input type="number" data-sid="${s.id}" data-field="trim_in"
+                 value="${tin.toFixed(2)}" min="0" max="${srcDur.toFixed(2)}" step="0.1"/>
+          <span>→</span>
+          <input type="number" data-sid="${s.id}" data-field="trim_out"
+                 value="${tout.toFixed(2)}" min="0" max="${srcDur.toFixed(2)}" step="0.1"/>
+          <span class="mono" style="margin-left:auto;">= ${effDur.toFixed(1)}s</span>
         </div>
       </div>
+      <div>
+        <div style="font-size:12px;color:var(--text);line-height:1.4;margin-bottom:6px;">${escapeHtml((s.prompt || '').slice(0, 140))}${(s.prompt || '').length > 140 ? '…' : ''}</div>
+        <div style="font-size:11px;color:var(--text-dim);display:flex;gap:6px;flex-wrap:wrap;">
+          <span class="status-chip ${s.status}">${s.status}</span>
+          ${s.camera ? `<span class="chip">${escapeHtml(s.camera)}</span>` : ''}
+          ${(s.character_ids || []).map(cid => {
+            const c = (state.project.bible?.characters || []).find(x => x.id === cid);
+            return c ? `<span class="chip">@${escapeHtml(c.name || cid)}</span>` : '';
+          }).join('')}
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--text-mute);font-family:'JetBrains Mono',monospace;">#${i+1}</div>
     `;
     strip.appendChild(row);
   }
+
+  strip.querySelectorAll('input[data-field^=trim_]').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const val = parseFloat(inp.value);
+      if (!Number.isFinite(val)) return;
+      saveShot(inp.dataset.sid, { [inp.dataset.field]: val });
+    });
+  });
+  strip.querySelectorAll('select[data-field=transition_in_kind]').forEach(sel => {
+    sel.addEventListener('change', () => {
+      saveShot(sel.dataset.sid, { transition_in_kind: sel.value });
+      const dur = strip.querySelector(`input[data-sid="${sel.dataset.sid}"][data-field=transition_in_dur]`);
+      if (dur) dur.disabled = sel.value === 'cut';
+    });
+  });
+  strip.querySelectorAll('input[data-field=transition_in_dur]').forEach(inp => {
+    inp.addEventListener('change', () => {
+      const val = parseFloat(inp.value);
+      if (!Number.isFinite(val)) return;
+      saveShot(inp.dataset.sid, { transition_in_dur: val });
+    });
+  });
+
+  enableTimelineDnd(strip);
+}
+
+function enableTimelineDnd(strip) {
+  let dragSid = null;
+  strip.querySelectorAll('.tl-row').forEach(row => {
+    row.addEventListener('dragstart', (e) => {
+      dragSid = row.dataset.sid;
+      row.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+    });
+    row.addEventListener('dragend', () => {
+      row.classList.remove('dragging');
+      strip.querySelectorAll('.tl-row').forEach(r => r.classList.remove('drop-target'));
+    });
+    row.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (!dragSid || row.dataset.sid === dragSid) return;
+      strip.querySelectorAll('.tl-row').forEach(r => r.classList.remove('drop-target'));
+      row.classList.add('drop-target');
+    });
+    row.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (!dragSid || row.dataset.sid === dragSid) return;
+      reorderShot(dragSid, row.dataset.sid);
+      dragSid = null;
+    });
+  });
+}
+
+async function reorderShot(dragSid, dropSid) {
+  const shots = state.project.shots;
+  const from = shots.findIndex(s => s.id === dragSid);
+  const to = shots.findIndex(s => s.id === dropSid);
+  if (from < 0 || to < 0 || from === to) return;
+  const [moved] = shots.splice(from, 1);
+  shots.splice(to, 0, moved);
+  shots.forEach((s, i) => s.order_idx = i);
+  renderTimeline();
+  try {
+    await api(`/api/projects/${state.currentId}/shots/reorder`, {
+      method: 'POST', body: JSON.stringify({ order: shots.map(s => s.id) }),
+    });
+  } catch (e) { toast('Reorder save failed: ' + e.message, true); }
 }
 
 function renderTimelineMedia(s) {
@@ -999,12 +1194,28 @@ function renderTimelineMedia(s) {
   return `<div class="shot-placeholder" style="aspect-ratio:16/9;"><small>${s.status}</small></div>`;
 }
 
+function openExportModal() {
+  const projRatio = state.project?.settings?.ratio || '16:9';
+  $('expRatio').value = '';  // default to "match project"
+  // Show project default in placeholder
+  const firstOpt = $('expRatio').options[0];
+  if (firstOpt) firstOpt.textContent = `(match project — ${projRatio})`;
+  $('exportModal').classList.remove('hidden');
+}
+
 async function exportProject() {
   if (!state.currentId) return;
+  const ratio = $('expRatio').value || state.project?.settings?.ratio || '16:9';
+  const fit = $('expFit').value || 'contain';
+  const shortSide = parseInt($('expShort').value, 10) || 720;
+  closeModal();
   $('exportBtn').disabled = true;
   $('exportStatus').textContent = 'starting…';
   try {
-    await api(`/api/projects/${state.currentId}/export`, { method: 'POST' });
+    await api(`/api/projects/${state.currentId}/export`, {
+      method: 'POST',
+      body: JSON.stringify({ ratio, fit, short_side: shortSide }),
+    });
     pollExport();
   } catch (e) {
     toast(e.message, true);
@@ -1023,9 +1234,11 @@ async function pollExport() {
         $('exportStatus').textContent = `stitching${dots}`;
       } else if (s.status === 'done') {
         clearInterval(state._exportTimer);
-        $('exportStatus').textContent = `✓ ${(s.result?.duration || 0).toFixed(1)}s · ${s.result?.shot_count} shots`;
+        const r = s.result || {};
+        $('exportStatus').textContent = `✓ ${(r.duration || 0).toFixed(1)}s · ${r.shot_count} shots · ${r.width}×${r.height}`;
         $('exportBtn').disabled = false;
         $('finalCard').classList.remove('hidden');
+        $('finalMeta').textContent = `${r.ratio} · ${r.fit} · ${r.width}×${r.height} · ${(r.duration || 0).toFixed(1)}s`;
         $('finalVideo').src = s.video_url;
         $('finalDownload').href = s.video_url;
         toast('Export complete');
@@ -1108,6 +1321,7 @@ function appendPrompt(snippet) {
 function closeModal() {
   $('genModal').classList.add('hidden');
   $('pickerModal').classList.add('hidden');
+  $('exportModal').classList.add('hidden');
 }
 
 async function submitGenerate() {

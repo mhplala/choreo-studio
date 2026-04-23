@@ -91,6 +91,10 @@ def init_db(db_path: Path):
         _maybe_add_col(c, "shots", "location_id", "TEXT DEFAULT ''")
         _maybe_add_col(c, "shots", "camera", "TEXT DEFAULT ''")
         _maybe_add_col(c, "shots", "preview_tos_key", "TEXT")
+        _maybe_add_col(c, "shots", "trim_in", "REAL NOT NULL DEFAULT 0")
+        _maybe_add_col(c, "shots", "trim_out", "REAL")
+        _maybe_add_col(c, "shots", "transition_in_kind", "TEXT NOT NULL DEFAULT 'cut'")
+        _maybe_add_col(c, "shots", "transition_in_dur", "REAL NOT NULL DEFAULT 0.5")
 
 
 def _maybe_add_col(c, table: str, col: str, spec: str) -> None:
@@ -272,7 +276,8 @@ def get_shot(sid: str) -> dict | None:
 def update_shot(sid: str, **fields) -> dict | None:
     allowed = {"prompt", "duration_sec", "order_idx",
                "element_ids", "character_ids", "location_id", "camera",
-               "status", "task_id", "seed", "video_tos_key", "preview_tos_key"}
+               "status", "task_id", "seed", "video_tos_key", "preview_tos_key",
+               "trim_in", "trim_out", "transition_in_kind", "transition_in_dur"}
     fields = {k: v for k, v in fields.items() if k in allowed}
     if not fields:
         return get_shot(sid)
