@@ -236,29 +236,54 @@ input, select, textarea { font:inherit; color:inherit; }
                 font-size:12px; outline:0; font-family:inherit; line-height:1.5; resize:vertical; }
 .bible-global:focus { border-color:var(--teal); }
 .bible-list { display:flex; flex-direction:column; gap:8px; }
-.bible-item { display:grid; grid-template-columns: 72px 120px 1fr auto; gap:10px; padding:8px 10px;
-              background:var(--bg-3); border:1px solid var(--line); border-radius:8px; align-items:start; }
+.bible-item {
+  display:grid; grid-template-columns: 112px 140px 1fr auto;
+  gap:14px; padding:12px; background:var(--bg-3);
+  border:1px solid var(--line); border-radius:10px; align-items:start;
+}
+.bible-img-col { display:flex; flex-direction:column; gap:6px; }
 .bible-img {
-  width:72px; height:72px; border-radius:6px; background:#000;
-  border:1px solid var(--line-2); overflow:hidden;
-  display:flex; align-items:center; justify-content:center; position:relative;
-  cursor:pointer;
-}
-.bible-img img { width:100%; height:100%; object-fit:cover; display:block; }
-.bible-img .placeholder { color:var(--text-mute); font-size:10px; text-align:center; padding:4px; line-height:1.3; }
-.bible-img .mini-actions {
-  position:absolute; inset:auto 0 0 0; background:rgba(0,0,0,0.7);
-  display:flex; gap:2px; opacity:0; transition:opacity 120ms;
-}
-.bible-img:hover .mini-actions { opacity:1; }
-.bible-img .mini-actions button {
-  flex:1; background:transparent; color:white; font-size:10px; padding:3px 0; cursor:pointer; border:0;
-}
-.bible-img .mini-actions button:hover { background:rgba(255,255,255,0.1); }
-.bible-img .gen-indicator {
-  position:absolute; inset:0; background:rgba(0,0,0,0.7);
+  width:112px; height:112px; border-radius:8px; background:var(--bg);
+  border:1.5px dashed var(--line-2); overflow:hidden; position:relative;
   display:flex; align-items:center; justify-content:center;
+  transition:border-color 150ms;
 }
+.bible-img.has-image { border-style:solid; border-color:var(--line); background:#000; }
+.bible-img img { width:100%; height:100%; object-fit:cover; display:block; }
+.bible-img .placeholder {
+  display:flex; flex-direction:column; align-items:center; gap:4px;
+  color:var(--text-mute); font-size:11px; text-align:center; line-height:1.3;
+  padding:6px;
+}
+.bible-img .placeholder .big-icon { font-size:28px; opacity:0.5; }
+.bible-img .gen-overlay {
+  position:absolute; inset:0; background:rgba(0,0,0,0.75);
+  display:flex; align-items:center; justify-content:center; color:var(--teal);
+  font-size:11px; gap:6px;
+}
+.bible-img-actions {
+  display:grid; grid-template-columns:1fr 1fr; gap:4px;
+}
+.bible-img-actions.has-image { grid-template-columns:1fr 1fr 1fr; }
+.bible-img-actions button {
+  padding:5px 6px; font-size:10px; font-weight:500;
+  border-radius:5px; border:1px solid var(--line);
+  background:var(--bg); color:var(--text-dim); cursor:pointer;
+  transition:all 120ms; font-family:inherit;
+  display:flex; align-items:center; justify-content:center; gap:3px;
+}
+.bible-img-actions button:hover {
+  background:var(--bg-3); color:var(--text); border-color:var(--line-2);
+}
+.bible-img-actions button.gen-btn {
+  background:linear-gradient(135deg, var(--teal-soft), var(--magenta-soft));
+  color:var(--teal); border-color:transparent;
+}
+.bible-img-actions button.gen-btn:hover {
+  background:linear-gradient(135deg, var(--teal), var(--magenta));
+  color:white; filter:brightness(1.1);
+}
+.bible-img-actions button.del-btn:hover { color:var(--err); border-color:var(--err); }
 .bible-item input, .bible-item textarea {
   width:100%; padding:5px 8px; border-radius:4px; background:var(--bg);
   border:1px solid var(--line); color:var(--text); font-size:12px; outline:0; font-family:inherit;
@@ -1281,16 +1306,31 @@ function renderBibleList(domId, kind, items) {
     const isBusy = busy.has(key);
     const row = document.createElement('div');
     row.className = 'bible-item';
-    const imgHtml = it.reference_url
+    const hasImg = !!it.reference_url;
+    const genLabel = currentLang === 'zh' ? '生成' : 'Generate';
+    const uploadLabel = currentLang === 'zh' ? '上传' : 'Upload';
+    const genBusyLabel = currentLang === 'zh' ? '生成中' : 'Generating';
+    const noRefLabel = currentLang === 'zh' ? '暂无参考图' : 'no reference yet';
+
+    const imgHtml = hasImg
       ? `<img src="${escapeHtml(it.reference_url)}"/>`
-      : `<div class="placeholder">${isBusy ? '<span class="spin"></span>' : '🖼<br>no ref'}</div>`;
+      : `<div class="placeholder">
+           <span class="big-icon">🖼</span>
+           <span>${escapeHtml(noRefLabel)}</span>
+         </div>`;
+    const busyOverlay = isBusy
+      ? `<div class="gen-overlay"><span class="spin"></span>${escapeHtml(genBusyLabel)}…</div>`
+      : '';
+
     row.innerHTML = `
-      <div class="bible-img" data-bi-kind="${kind}" data-bi-id="${escapeHtml(it.id || '')}">
-        ${imgHtml}
-        <div class="mini-actions">
-          <button onclick="bibleGenImage('${kind}', '${escapeHtml(it.id || '')}')">✨</button>
-          <button onclick="bibleUploadImage('${kind}', '${escapeHtml(it.id || '')}')">⬆</button>
-          ${it.reference_url ? `<button onclick="bibleDelImage('${kind}', '${escapeHtml(it.id || '')}')">×</button>` : ''}
+      <div class="bible-img-col">
+        <div class="bible-img ${hasImg ? 'has-image' : ''}" data-bi-kind="${kind}" data-bi-id="${escapeHtml(it.id || '')}">
+          ${imgHtml}${busyOverlay}
+        </div>
+        <div class="bible-img-actions ${hasImg ? 'has-image' : ''}">
+          <button class="gen-btn" onclick="bibleGenImage('${kind}', '${escapeHtml(it.id || '')}')" ${isBusy ? 'disabled' : ''}>✨ ${escapeHtml(genLabel)}</button>
+          <button onclick="bibleUploadImage('${kind}', '${escapeHtml(it.id || '')}')" ${isBusy ? 'disabled' : ''}>⬆ ${escapeHtml(uploadLabel)}</button>
+          ${hasImg ? `<button class="del-btn" onclick="bibleDelImage('${kind}', '${escapeHtml(it.id || '')}')" title="Remove image">×</button>` : ''}
         </div>
       </div>
       <div class="name-col">
