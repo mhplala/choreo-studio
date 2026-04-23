@@ -128,8 +128,10 @@ DEFAULT_SETTINGS = {
 
 DEFAULT_BIBLE = {
     "visual_bible": "",
-    "characters": [],   # [{"id": "...", "name": "...", "visual": "..."}]
-    "locations": [],    # [{"id": "...", "name": "...", "visual": "..."}]
+    "style_image_tos_key": None,  # optional global style reference image
+    "characters": [],   # [{"id","name","visual","reference_tos_key"}]
+    "locations": [],    # [{"id","name","visual","reference_tos_key"}]
+    "assets": [],       # [{"id","name","visual","kind","reference_tos_key"}] — ad-hoc per-shot refs
 }
 
 
@@ -295,6 +297,51 @@ def update_shot(sid: str, **fields) -> dict | None:
 def delete_shot(sid: str) -> None:
     with _LOCK, _conn() as c:
         c.execute("DELETE FROM shots WHERE id=?", (sid,))
+
+
+def migrate_elements_to_bible() -> int:
+    """One-time migration: move every project's elements rows into that project's
+    bible.assets array, then drop the now-duplicated elements. Idempotent —
+    checks for existing asset ids before copying. Returns count of elements moved.
+    """
+    moved = 0
+    with _conn() as c:
+        projects = c.execute("SELECT id FROM projects").fetchall()
+    for prow in projects:
+        pid = prow["id"]
+        project = get_project(pid)
+        if not project:
+            continue
+        bible = dict(project.get("bible") or DEFAULT_BIBLE)
+        assets = list(bible.get("assets") or [])
+        existing_ids = {a.get("id") for a in assets}
+        with _conn() as c:
+            el_rows = c.execute(
+                "SELECT * FROM elements WHERE project_id=? ORDER BY created_at ASC",
+                (pid,),
+            ).fetchall()
+        if not el_rows:
+            continue
+        for el in el_rows:
+            eid = el["id"]
+            if eid in existing_ids:
+                continue
+            assets.append({
+                "id": eid,
+                "name": el["name"] or "",
+                "visual": el["prompt"] or "",
+                "kind": el["kind"] or "prop",
+                "reference_tos_key": el["tos_key"],
+                "from_element": True,
+            })
+            existing_ids.add(eid)
+            moved += 1
+        bible["assets"] = assets
+        update_project(pid, bible=bible)
+        # Now drop the elements rows — their identity lives in bible.assets.
+        with _LOCK, _conn() as c:
+            c.execute("DELETE FROM elements WHERE project_id=?", (pid,))
+    return moved
 
 
 def replace_shots(project_id: str, shots: list[dict]) -> list[dict]:

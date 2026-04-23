@@ -71,6 +71,13 @@ tos_client = tos.TosClientV2(
 )
 
 storage.init_db(DB_PATH)
+# One-time migration: fold legacy elements table rows into project.bible.assets.
+try:
+    _n = storage.migrate_elements_to_bible()
+    if _n:
+        print(f"[choreo-studio] migrated {_n} elements to bible.assets")
+except Exception as _e:
+    print(f"[choreo-studio] migration warning: {_e}")
 pipeline.configure(tos_client, TOS_BUCKET, JOBS_DIR, ARK_API_KEY, SEEDANCE_MODELS)
 
 # On startup, mark any shots stuck in 'generating' (worker threads died with
@@ -151,7 +158,11 @@ def projects():
     name = (body.get("name") or "Untitled project").strip()
     script = body.get("script", "") or ""
     settings = body.get("settings") if isinstance(body.get("settings"), dict) else None
-    return jsonify(storage.create_project(name=name, script=script, settings=settings))
+    bible = body.get("bible") if isinstance(body.get("bible"), dict) else None
+    p = storage.create_project(name=name, script=script, settings=settings)
+    if bible:
+        p = storage.update_project(p["id"], bible=bible)
+    return jsonify(p)
 
 
 @app.route("/api/projects/<pid>", methods=["GET", "PATCH", "DELETE"])
@@ -170,12 +181,15 @@ def project(pid):
                 s["video_url"] = tos_presign(s["video_tos_key"], expires=3600)
             if s.get("preview_tos_key"):
                 s["preview_url"] = tos_presign(s["preview_tos_key"], expires=3600)
-        # presign bible character/location reference images
+        # presign bible character/location/asset reference images
         b = p.get("bible") or {}
-        for kind in ("characters", "locations"):
+        for kind in ("characters", "locations", "assets"):
             for entry in (b.get(kind) or []):
                 if entry.get("reference_tos_key"):
                     entry["reference_url"] = tos_presign(entry["reference_tos_key"], expires=3600)
+        # Also presign the global style image if present
+        if b.get("style_image_tos_key"):
+            b["style_image_url"] = tos_presign(b["style_image_tos_key"], expires=3600)
         return jsonify(p)
     if request.method == "DELETE":
         storage.delete_project(pid)
@@ -293,7 +307,7 @@ def patch_bible(pid):
     # Preserve existing reference_tos_key fields on each entry when PATCHing
     # the bible — the client may send a partial object without images.
     current = storage.get_project(pid)["bible"]
-    for kind in ("characters", "locations"):
+    for kind in ("characters", "locations", "assets"):
         new_list = body.get(kind, []) or []
         old_list = current.get(kind, []) or []
         old_refs = {e.get("id"): e.get("reference_tos_key") for e in old_list if e.get("id")}
@@ -304,7 +318,7 @@ def patch_bible(pid):
     updated = storage.update_project(pid, bible=body)
     # Attach presigned preview urls so the frontend can show images.
     b = updated["bible"]
-    for kind in ("characters", "locations"):
+    for kind in ("characters", "locations", "assets"):
         for e in b.get(kind, []):
             if e.get("reference_tos_key"):
                 e["reference_url"] = tos_presign(e["reference_tos_key"], expires=3600)
@@ -335,8 +349,8 @@ def _save_bible_entry(pid: str, kind: str, eid: str, ref_key: str):
 @app.route("/api/projects/<pid>/bible/<kind>/<eid>/upload", methods=["POST"])
 @require_auth
 def bible_upload_image(pid, kind, eid):
-    if kind not in ("characters", "locations"):
-        return jsonify({"error": "kind must be characters|locations"}), 400
+    if kind not in ("characters", "locations", "assets"):
+        return jsonify({"error": "kind must be characters|locations|assets"}), 400
     p = storage.get_project(pid)
     if not p:
         return jsonify({"error": "project not found"}), 404
@@ -372,8 +386,8 @@ def bible_upload_image(pid, kind, eid):
 @app.route("/api/projects/<pid>/bible/<kind>/<eid>/generate", methods=["POST"])
 @require_auth
 def bible_generate_image(pid, kind, eid):
-    if kind not in ("characters", "locations"):
-        return jsonify({"error": "kind must be characters|locations"}), 400
+    if kind not in ("characters", "locations", "assets"):
+        return jsonify({"error": "kind must be characters|locations|assets"}), 400
     p = storage.get_project(pid)
     if not p:
         return jsonify({"error": "project not found"}), 404
@@ -417,8 +431,8 @@ def bible_generate_image(pid, kind, eid):
 @app.route("/api/projects/<pid>/bible/<kind>/<eid>/image", methods=["DELETE"])
 @require_auth
 def bible_delete_image(pid, kind, eid):
-    if kind not in ("characters", "locations"):
-        return jsonify({"error": "kind must be characters|locations"}), 400
+    if kind not in ("characters", "locations", "assets"):
+        return jsonify({"error": "kind must be characters|locations|assets"}), 400
     p = storage.get_project(pid)
     if not p:
         return jsonify({"error": "project not found"}), 404

@@ -206,6 +206,17 @@ input, select, textarea { font:inherit; color:inherit; }
 .status-chip.done { background:var(--ok); color:#0a0f1f; }
 .status-chip.failed { background:var(--err); color:white; }
 
+/* template cards */
+.tmpl-card {
+  background:var(--bg-2); border:1px solid var(--line); border-radius:10px;
+  padding:16px; cursor:pointer; transition:all 140ms;
+  display:flex; flex-direction:column; gap:6px;
+}
+.tmpl-card:hover { border-color:var(--teal); background:var(--bg-3); transform:translateY(-2px); }
+.tmpl-card .tmpl-icon { font-size:28px; line-height:1; }
+.tmpl-card .tmpl-name { font-size:14px; font-weight:600; color:var(--text); }
+.tmpl-card .tmpl-desc { font-size:11px; color:var(--text-dim); line-height:1.4; }
+
 /* chain toggle */
 .toggle-row { display:flex; align-items:center; gap:10px; font-size:12px; color:var(--text-dim); }
 .toggle-row input[type=checkbox] { width:16px; height:16px; accent-color:var(--teal); }
@@ -454,17 +465,15 @@ input, select, textarea { font:inherit; color:inherit; }
       </div>
 
       <div class="tabs">
-        <div class="tab active" data-tab="elements" onclick="switchTab('elements')">
-          Elements <span class="tab-badge" id="elementsCount">0</span>
-        </div>
-        <div class="tab" data-tab="storyboard" onclick="switchTab('storyboard')">
+        <div class="tab active" data-tab="storyboard" onclick="switchTab('storyboard')">
           Storyboard <span class="tab-badge" id="shotsCount">0</span>
         </div>
         <div class="tab" data-tab="timeline" onclick="switchTab('timeline')">Timeline</div>
       </div>
 
-      <!-- Elements tab -->
-      <div class="tab-panel active" data-panel="elements">
+      <!-- Elements tab — DEPRECATED: merged into Visual Bible > Assets.
+           Kept as hidden panel for legacy; nothing renders into it. -->
+      <div class="tab-panel" data-panel="elements" style="display:none;">
         <div class="card" style="display:flex;gap:10px;align-items:center;justify-content:space-between;">
           <div>
             <div style="font-size:14px;font-weight:600;">素材库</div>
@@ -487,7 +496,7 @@ input, select, textarea { font:inherit; color:inherit; }
       </div>
 
       <!-- Storyboard tab -->
-      <div class="tab-panel" data-panel="storyboard">
+      <div class="tab-panel active" data-panel="storyboard">
         <div class="card">
           <div style="font-size:14px;font-weight:600;margin-bottom:6px;">剧本 / Script</div>
           <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">
@@ -531,6 +540,13 @@ input, select, textarea { font:inherit; color:inherit; }
                 <button class="btn small" onclick="bibleAddEntry('locations')">+ Location</button>
               </h4>
               <div class="bible-list" id="bibleLocs"></div>
+            </div>
+            <div class="bible-section">
+              <h4 style="display:flex;align-items:center;gap:8px;">
+                Assets · 道具 / 其他 <span style="font-size:10px;color:var(--text-mute);font-weight:400;letter-spacing:0;text-transform:none;">(ad-hoc per shot)</span>
+                <button class="btn small" onclick="bibleAddEntry('assets')">+ Asset</button>
+              </h4>
+              <div class="bible-list" id="bibleAssets"></div>
             </div>
             <div style="display:flex;justify-content:flex-end;">
               <button class="btn primary" onclick="saveBible()">Save bible</button>
@@ -637,6 +653,44 @@ input, select, textarea { font:inherit; color:inherit; }
     <div class="modal-actions">
       <button class="btn ghost" onclick="closeModal()">Cancel</button>
       <button class="btn primary" id="genSubmit" onclick="submitGenerate()">✨ Generate</button>
+    </div>
+  </div>
+</div>
+
+<!-- Template picker modal -->
+<div class="modal-backdrop hidden" id="tmplModal">
+  <div class="modal" style="max-width:760px;">
+    <h3>🎬 新项目 · 选一个模板</h3>
+    <div class="modal-sub">模板会预填 Visual Bible 和一些默认设置。你之后随时可以改。</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:10px;">
+      <div class="tmpl-card" data-tmpl="blank">
+        <div class="tmpl-icon">⬜</div>
+        <div class="tmpl-name">Blank</div>
+        <div class="tmpl-desc">完全空白，自己从零配。</div>
+      </div>
+      <div class="tmpl-card" data-tmpl="educational">
+        <div class="tmpl-icon">📚</div>
+        <div class="tmpl-name">Educational</div>
+        <div class="tmpl-desc">1 讲师 + 1 教室，适合概念解释 / 教学。</div>
+      </div>
+      <div class="tmpl-card" data-tmpl="drama">
+        <div class="tmpl-icon">🎭</div>
+        <div class="tmpl-name">Short Drama</div>
+        <div class="tmpl-desc">2 角色 + 2 场景，cinematic 风。</div>
+      </div>
+      <div class="tmpl-card" data-tmpl="ui_demo">
+        <div class="tmpl-icon">📱</div>
+        <div class="tmpl-name">UI Demo</div>
+        <div class="tmpl-desc">产品特性展示，干净品牌感。</div>
+      </div>
+      <div class="tmpl-card" data-tmpl="meme">
+        <div class="tmpl-icon">😂</div>
+        <div class="tmpl-name">Meme</div>
+        <div class="tmpl-desc">单镜头为主，9:16 竖屏。</div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn ghost" onclick="closeModal()">Cancel</button>
     </div>
   </div>
 </div>
@@ -756,11 +810,83 @@ function renderProjects() {
   }
 }
 
-async function newProject() {
-  const name = prompt('Project name?', 'Untitled project');
+// Template definitions — preload Bible & settings so user doesn't start
+// from a blank page. Server-side is unaware; templates are purely frontend.
+const TEMPLATES = {
+  blank: {
+    displayName: 'Untitled project',
+    settings: { ratio: '16:9', resolution: '480p', generate_audio: false },
+    bible: {},
+  },
+  educational: {
+    displayName: 'Untitled explainer',
+    settings: { ratio: '16:9', resolution: '480p', generate_audio: false },
+    bible: {
+      visual_bible: '干净的 explainer 风格，均匀柔光，画面居中稳定，颜色克制，无杂乱背景。',
+      characters: [
+        { id: 'presenter', name: 'Presenter', visual: '一位亲和力强的年轻讲师，面向镜头讲解，表情生动，半身/胸上构图' },
+      ],
+      locations: [
+        { id: 'studio', name: 'Studio', visual: '简洁的浅色演播室背景，一些柔和的装饰灯或道具' },
+      ],
+      assets: [],
+    },
+  },
+  drama: {
+    displayName: 'Untitled drama',
+    settings: { ratio: '16:9', resolution: '480p', generate_audio: false },
+    bible: {
+      visual_bible: '35mm 胶片质感，暖色调，浅景深，cinematic lighting，电影节奏。',
+      characters: [
+        { id: 'protagonist', name: 'Protagonist', visual: '（描述主角外观：年龄、族裔、发型、服装、显著特征）' },
+        { id: 'antagonist', name: 'Antagonist', visual: '（描述反派外观）' },
+      ],
+      locations: [
+        { id: 'setting_a', name: 'Setting A', visual: '（描述主要场景，例如：雨夜老街，霓虹灯招牌）' },
+        { id: 'setting_b', name: 'Setting B', visual: '（第二个场景）' },
+      ],
+      assets: [],
+    },
+  },
+  ui_demo: {
+    displayName: 'Untitled demo',
+    settings: { ratio: '16:9', resolution: '720p', generate_audio: false },
+    bible: {
+      visual_bible: '干净的产品介绍风格，motion typography，品牌色调，简洁 UI 为主体。',
+      characters: [],
+      locations: [],
+      assets: [],
+    },
+  },
+  meme: {
+    displayName: 'Untitled meme',
+    settings: { ratio: '9:16', resolution: '480p', generate_audio: false },
+    bible: { visual_bible: '', characters: [], locations: [], assets: [] },
+  },
+};
+
+function newProject() {
+  $('tmplModal').classList.remove('hidden');
+  // Wire up click handlers each open (safe to re-wire).
+  document.querySelectorAll('#tmplModal .tmpl-card').forEach(c => {
+    c.onclick = () => createProjectFromTemplate(c.dataset.tmpl);
+  });
+}
+
+async function createProjectFromTemplate(key) {
+  const tmpl = TEMPLATES[key] || TEMPLATES.blank;
+  closeModal();
+  const name = prompt('Project name?', tmpl.displayName) ;
   if (!name) return;
   try {
-    const p = await api('/api/projects', { method:'POST', body: JSON.stringify({name}) });
+    const p = await api('/api/projects', {
+      method: 'POST',
+      body: JSON.stringify({
+        name,
+        settings: tmpl.settings,
+        bible: tmpl.bible,
+      }),
+    });
     state.projects.unshift(p);
     renderProjects();
     selectProject(p.id);
@@ -783,7 +909,6 @@ function renderProject() {
   const p = state.project;
   $('projTitle').value = p.name;
   $('scriptBox').value = p.script || '';
-  $('elementsCount').textContent = p.elements?.length || 0;
   $('shotsCount').textContent = p.shots?.length || 0;
   // Settings
   const s = p.settings || {};
@@ -792,7 +917,6 @@ function renderProject() {
   $('setAudio').checked = !!s.generate_audio;
   // Bible
   renderBible();
-  renderElements();
   renderShots();
   updateStoryHint();
 }
@@ -801,17 +925,19 @@ function renderProject() {
 // Visual Bible
 // =========================================================================
 function renderBible() {
-  const b = state.project.bible || { visual_bible: '', characters: [], locations: [] };
+  const b = state.project.bible || { visual_bible: '', characters: [], locations: [], assets: [] };
   $('bibleStyle').value = b.visual_bible || '';
   const charEls = (b.characters || []).length;
   const locEls = (b.locations || []).length;
-  const has = (b.visual_bible || charEls > 0 || locEls > 0);
+  const assEls = (b.assets || []).length;
+  const has = (b.visual_bible || charEls > 0 || locEls > 0 || assEls > 0);
   $('bibleSummary').textContent = has
-    ? `${charEls} 角色 · ${locEls} 场景 · ${(b.visual_bible || '').length} 字风格`
+    ? `${charEls} 角色 · ${locEls} 场景 · ${assEls} assets · ${(b.visual_bible || '').length} 字风格`
     : '还没写 — 建议用 Auto-storyboard 自动生成';
   $('biblePanel').open = has;
   renderBibleList('chars', 'characters', b.characters || []);
   renderBibleList('locs', 'locations', b.locations || []);
+  renderBibleList('assets', 'assets', b.assets || []);
 }
 
 function renderBibleList(domId, kind, items) {
@@ -926,9 +1052,10 @@ async function bibleDelImage(kind, eid) {
 }
 
 function bibleAddEntry(kind) {
-  const b = state.project.bible || { visual_bible: '', characters: [], locations: [] };
+  const b = state.project.bible || { visual_bible: '', characters: [], locations: [], assets: [] };
   const list = b[kind] || [];
-  const id = `${kind === 'characters' ? 'char' : 'loc'}_${list.length + 1}`;
+  const prefix = kind === 'characters' ? 'char' : kind === 'locations' ? 'loc' : 'asset';
+  const id = `${prefix}_${list.length + 1}_${Math.random().toString(36).slice(2,6)}`;
   list.push({ id, name: '', visual: '' });
   b[kind] = list;
   state.project.bible = b;
@@ -1403,10 +1530,10 @@ function renderShots() {
           <span class="status-chip ${s.status}">${s.status}${s.status === 'generating' ? '<span class="spin" style="margin-left:6px;"></span>' : ''}</span>
           ${s.preview_url ? '<span class="chip" style="color:var(--teal);">🖼 preview locked</span>' : ''}
           ${(s.element_ids || []).map(eid => {
-            const e = state.project.elements.find(x => x.id === eid);
-            return e ? `<span class="chip"><img src="${escapeHtml(e.preview_url)}"/>${escapeHtml(e.name)}</span>` : '';
+            const a = (state.project.bible?.assets || []).find(x => x.id === eid);
+            return a && a.reference_url ? `<span class="chip"><img src="${escapeHtml(a.reference_url)}"/>${escapeHtml(a.name || eid)}</span>` : '';
           }).join('')}
-          <span class="chip clickable" onclick="openPicker('${s.id}')">+ Element</span>
+          <span class="chip clickable" onclick="openPicker('${s.id}')">+ Asset</span>
           ${s.task_id && s.status === 'failed' ? `<span class="chip" title="${escapeHtml(s.task_id)}" style="color:var(--err);cursor:help;">× ${escapeHtml(friendlyError(s.task_id))}</span>` : ''}
         </div>
       </div>
@@ -1564,23 +1691,24 @@ function renderPickerGrid() {
   const shot = state.project.shots.find(s => s.id === sid);
   const attached = new Set(shot?.element_ids || []);
   const grid = $('pickerGrid');
-  const els = state.project.elements || [];
-  if (!els.length) {
-    grid.innerHTML = `<div style="grid-column:1/-1;color:var(--text-mute);text-align:center;padding:40px 20px;font-size:12px;">No elements yet — go to Elements tab to add some.</div>`;
+  // Source: bible.assets (the unified library).
+  const assets = (state.project.bible?.assets || []).filter(a => a.reference_url || a.reference_tos_key);
+  if (!assets.length) {
+    grid.innerHTML = `<div style="grid-column:1/-1;color:var(--text-mute);text-align:center;padding:40px 20px;font-size:12px;">No assets with images yet — add some in Visual Bible → Assets.</div>`;
     return;
   }
   grid.innerHTML = '';
-  for (const e of els) {
+  for (const a of assets) {
     const card = document.createElement('div');
-    card.className = 'el-card' + (attached.has(e.id) ? '' : '');
+    card.className = 'el-card';
     card.style.cursor = 'pointer';
-    card.style.opacity = attached.has(e.id) ? '1' : '0.55';
-    card.style.borderColor = attached.has(e.id) ? 'var(--teal)' : '';
+    card.style.opacity = attached.has(a.id) ? '1' : '0.55';
+    card.style.borderColor = attached.has(a.id) ? 'var(--teal)' : '';
     card.innerHTML = `
-      <div class="el-thumb"><img src="${escapeHtml(e.preview_url)}"/></div>
-      <div class="el-meta"><div class="el-name">${escapeHtml(e.name)}</div><div class="el-kind">${e.kind}</div></div>
+      <div class="el-thumb"><img src="${escapeHtml(a.reference_url || '')}"/></div>
+      <div class="el-meta"><div class="el-name">${escapeHtml(a.name || a.id)}</div><div class="el-kind">${a.kind || 'asset'}</div></div>
     `;
-    card.onclick = () => toggleElementOnShot(e.id);
+    card.onclick = () => toggleElementOnShot(a.id);
     grid.appendChild(card);
   }
 }

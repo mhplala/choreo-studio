@@ -168,19 +168,23 @@ def _run_one_shot(project_id: str, shot_id: str, chain_from_prev: bool):
     try:
         storage.update_shot(shot_id, status="generating", task_id=None)
 
-        # Resolve element reference images
+        # Pull the project bible once; it's the source of truth for all ref images.
+        bible = (project or {}).get("bible") or {}
+        assets_by_id = {a["id"]: a for a in (bible.get("assets") or []) if a.get("id")}
+
+        # Resolve per-shot ad-hoc asset references (formerly elements). Each
+        # shot.element_ids is a list of bible asset ids that the user manually
+        # attached to this specific shot.
         element_ids = shot.get("element_ids", [])
         element_urls = []
         for eid in element_ids:
-            el = storage.get_element(eid)
-            if el:
-                element_urls.append(_presign(el["tos_key"]))
+            a = assets_by_id.get(eid)
+            if a and a.get("reference_tos_key"):
+                element_urls.append(_presign(a["reference_tos_key"]))
 
         # Auto-attach bible reference images for the characters/location this
-        # shot uses. This is the core payoff of the Visual Bible: one click
-        # generates refs once, every shot that mentions that character or
-        # location automatically gets them attached.
-        bible = (project or {}).get("bible") or {}
+        # shot uses. One click in the Bible → every shot that mentions that
+        # character or location automatically gets the image attached.
         bible_ref_urls = [_presign(k) for k in bible_reference_keys(bible, shot)]
 
         # The Seedream-generated preview (if any) locks composition: attach as
