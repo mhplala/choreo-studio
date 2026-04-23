@@ -316,6 +316,34 @@ def generate_all_previews(pid):
     return jsonify({"queued": [s["id"] for s in shots]}), 202
 
 
+# ---- export: stitch all done shots into a single MP4 -----------------------
+@app.route("/api/projects/<pid>/export", methods=["POST"])
+@require_auth
+def export_project(pid):
+    if not storage.get_project(pid):
+        return jsonify({"error": "project not found"}), 404
+    done = [s for s in storage.list_shots(pid) if s.get("status") == "done"]
+    if not done:
+        return jsonify({"error": "no done shots yet"}), 400
+    state = pipeline.get_export_state(pid)
+    if state.get("status") == "running":
+        return jsonify({"error": "already exporting"}), 409
+    pipeline.enqueue_export(pid)
+    return jsonify({"ok": True, "shots": len(done)}), 202
+
+
+@app.route("/api/projects/<pid>/export/status")
+@require_auth
+def export_status(pid):
+    state = dict(pipeline.get_export_state(pid))
+    if state.get("status") == "done":
+        result = state.get("result") or {}
+        key = result.get("tos_key")
+        if key:
+            state["video_url"] = tos_presign(key, expires=3600)
+    return jsonify(state)
+
+
 # -- shots CRUD --
 @app.route("/api/projects/<pid>/shots", methods=["POST"])
 @require_auth

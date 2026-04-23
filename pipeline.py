@@ -6,6 +6,7 @@ result, upload to TOS, update DB.
 
 Runs in a background thread. Uses DB for state communication.
 """
+import shutil
 import subprocess
 import threading
 import time
@@ -313,3 +314,92 @@ def enqueue_preview(project_id: str, shot_id: str, seedream_model: str):
     def _runner():
         generate_shot_preview(project_id, shot_id, seedream_model)
     threading.Thread(target=_runner, daemon=True).start()
+
+
+# ---------------------------------------------------------------------------
+# Export: stitch all done shots in order into a single MP4 via ffmpeg concat
+# ---------------------------------------------------------------------------
+def export_project(project_id: str) -> dict:
+    """Concat all done shots (in order_idx order) into one final.mp4, upload
+    to TOS, record on the project. Returns {'tos_key': ..., 'duration': ...,
+    'shot_count': N} on success, or raises.
+    """
+    shots = [s for s in storage.list_shots(project_id)
+             if s.get("status") == "done" and s.get("video_tos_key")]
+    if not shots:
+        raise RuntimeError("No done shots to export")
+
+    work = JOBS_DIR / f"export_{project_id}_{int(time.time())}"
+    work.mkdir(parents=True, exist_ok=True)
+
+    # Download each shot's video to a local file, record ordered list.
+    local_paths: list[Path] = []
+    for i, s in enumerate(shots):
+        url = _presign(s["video_tos_key"])
+        local = work / f"seg_{i:03d}.mp4"
+        with requests.get(url, stream=True, timeout=180) as r:
+            r.raise_for_status()
+            with open(local, "wb") as f:
+                for chunk in r.iter_content(1 << 20):
+                    f.write(chunk)
+        local_paths.append(local)
+
+    # Write ffmpeg concat list (relative filenames so ffmpeg finds them in -cwd).
+    concat_txt = work / "concat.txt"
+    concat_txt.write_text("".join(f"file '{p.name}'\n" for p in local_paths))
+
+    final_local = work / "final.mp4"
+    # Use concat demuxer with re-encode to survive mismatched codecs/resolutions.
+    subprocess.run(
+        ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(concat_txt),
+         "-c:v", "libx264", "-preset", "veryfast", "-crf", "20",
+         "-c:a", "aac", "-b:a", "192k",
+         "-movflags", "+faststart",
+         str(final_local)],
+        check=True, capture_output=True, cwd=str(work),
+    )
+
+    # Probe duration, upload to TOS.
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+         "-of", "default=noprint_wrappers=1:nokey=1", str(final_local)],
+        check=True, capture_output=True, text=True,
+    )
+    duration = float(probe.stdout.strip() or 0)
+
+    key = f"dance-gen/studio/projects/{project_id}/exports/final_{int(time.time())}.mp4"
+    _TOS_CLIENT.put_object_from_file(TOS_BUCKET, key, str(final_local))
+
+    # Clean up local working dir (optional — leave for debug / allow disk cleanup).
+    # shutil.rmtree(work, ignore_errors=True)
+
+    return {"tos_key": key, "duration": duration, "shot_count": len(shots)}
+
+
+_EXPORT_STATE: dict[str, dict] = {}  # project_id -> {'status', 'result', 'error'}
+
+
+def enqueue_export(project_id: str):
+    """Kick off export in a background thread; frontend polls
+    GET /api/projects/:pid/export/status to observe progress."""
+    _EXPORT_STATE[project_id] = {"status": "running", "started_at": time.time()}
+
+    def _runner():
+        try:
+            result = export_project(project_id)
+            _EXPORT_STATE[project_id] = {
+                "status": "done",
+                "result": result,
+                "finished_at": time.time(),
+            }
+        except Exception as e:
+            _EXPORT_STATE[project_id] = {
+                "status": "failed",
+                "error": str(e),
+                "finished_at": time.time(),
+            }
+    threading.Thread(target=_runner, daemon=True).start()
+
+
+def get_export_state(project_id: str) -> dict:
+    return _EXPORT_STATE.get(project_id, {"status": "idle"})

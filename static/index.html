@@ -488,10 +488,33 @@ input, select, textarea { font:inherit; color:inherit; }
 
       <!-- Timeline tab -->
       <div class="tab-panel" data-panel="timeline">
-        <div class="empty-state">
-          <div class="big">⏱</div>
-          <div class="msg">Timeline 还没做完 —— 等各镜头生成好后会出现在这里。</div>
+        <div class="card" style="display:flex;gap:10px;align-items:center;justify-content:space-between;">
+          <div>
+            <div style="font-size:14px;font-weight:600;">Timeline · 成片导出</div>
+            <div style="font-size:12px;color:var(--text-dim);margin-top:2px;" id="timelineHint">
+              按顺序串起所有已生成的镜头，合成一个 mp4。
+            </div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span class="mono" style="font-size:11px;color:var(--text-mute);" id="exportStatus"></span>
+            <button class="btn primary" id="exportBtn" onclick="exportProject()">📼 Export MP4</button>
+          </div>
         </div>
+
+        <!-- Final combined video (shown after successful export) -->
+        <div class="card hidden" id="finalCard">
+          <div style="font-size:14px;font-weight:600;margin-bottom:10px;">最终成片</div>
+          <video id="finalVideo" controls playsinline style="width:100%;max-width:720px;border-radius:8px;background:#000;"></video>
+          <div style="margin-top:10px;">
+            <a id="finalDownload" class="btn" download>⬇ Download</a>
+          </div>
+        </div>
+
+        <!-- Strip of shots in order -->
+        <div style="font-size:11px;color:var(--text-mute);letter-spacing:0.14em;text-transform:uppercase;margin:10px 4px;">
+          Shots in order
+        </div>
+        <div id="timelineStrip" style="display:flex;flex-direction:column;gap:10px;"></div>
       </div>
     </div>
 
@@ -804,6 +827,105 @@ function switchTab(name) {
   state.tab = name;
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.dataset.panel === name));
+  if (name === 'timeline') renderTimeline();
+}
+
+// =========================================================================
+// Timeline
+// =========================================================================
+function renderTimeline() {
+  const strip = $('timelineStrip');
+  const shots = state.project?.shots || [];
+  const done = shots.filter(s => s.status === 'done');
+  const total = shots.length;
+
+  // Update hint + button state
+  const hintEl = $('timelineHint');
+  const btn = $('exportBtn');
+  if (!total) {
+    hintEl.textContent = '还没有镜头。去 Storyboard 里建几个。';
+    btn.disabled = true;
+  } else if (!done.length) {
+    hintEl.textContent = `${total} 个镜头，0 个已生成。先去 Storyboard 生成视频再来导出。`;
+    btn.disabled = true;
+  } else {
+    const totalSec = done.reduce((sum, s) => sum + (s.duration_sec || 9), 0);
+    hintEl.textContent = `${done.length}/${total} 已生成 · 合成后约 ${totalSec}s · 跳过未生成的`;
+    btn.disabled = false;
+  }
+
+  // Render shot strip in order
+  strip.innerHTML = '';
+  for (let i = 0; i < shots.length; i++) {
+    const s = shots[i];
+    const row = document.createElement('div');
+    row.style.cssText = 'display:grid;grid-template-columns:48px 320px 1fr;gap:14px;padding:10px;background:var(--bg-2);border:1px solid var(--line);border-radius:10px;align-items:center;';
+    row.innerHTML = `
+      <div class="shot-idx"><div class="n">${String(i+1).padStart(2,'0')}</div><div class="l">SHOT</div></div>
+      <div>${renderTimelineMedia(s)}</div>
+      <div>
+        <div style="font-size:12px;color:var(--text);line-height:1.4;margin-bottom:6px;">${escapeHtml((s.prompt || '').slice(0, 120))}${(s.prompt || '').length > 120 ? '…' : ''}</div>
+        <div style="font-size:11px;color:var(--text-dim);display:flex;gap:8px;flex-wrap:wrap;">
+          <span class="status-chip ${s.status}">${s.status}</span>
+          <span class="chip">${s.duration_sec || 9}s</span>
+          ${s.camera ? `<span class="chip">${escapeHtml(s.camera)}</span>` : ''}
+        </div>
+      </div>
+    `;
+    strip.appendChild(row);
+  }
+}
+
+function renderTimelineMedia(s) {
+  if (s.status === 'done' && s.video_url) {
+    return `<video src="${escapeHtml(s.video_url)}" controls playsinline preload="metadata" style="width:100%;aspect-ratio:16/9;border-radius:6px;background:#000;"></video>`;
+  }
+  if (s.preview_url) {
+    return `<div style="width:100%;aspect-ratio:16/9;border-radius:6px;background:#000;overflow:hidden;opacity:0.6;"><img src="${escapeHtml(s.preview_url)}" style="width:100%;height:100%;object-fit:cover;"/></div>`;
+  }
+  return `<div class="shot-placeholder" style="aspect-ratio:16/9;"><small>${s.status}</small></div>`;
+}
+
+async function exportProject() {
+  if (!state.currentId) return;
+  $('exportBtn').disabled = true;
+  $('exportStatus').textContent = 'starting…';
+  try {
+    await api(`/api/projects/${state.currentId}/export`, { method: 'POST' });
+    pollExport();
+  } catch (e) {
+    toast(e.message, true);
+    $('exportBtn').disabled = false;
+    $('exportStatus').textContent = '';
+  }
+}
+
+async function pollExport() {
+  if (state._exportTimer) clearInterval(state._exportTimer);
+  state._exportTimer = setInterval(async () => {
+    try {
+      const s = await api(`/api/projects/${state.currentId}/export/status`);
+      if (s.status === 'running') {
+        const dots = '.'.repeat((Date.now() / 500 | 0) % 4);
+        $('exportStatus').textContent = `stitching${dots}`;
+      } else if (s.status === 'done') {
+        clearInterval(state._exportTimer);
+        $('exportStatus').textContent = `✓ ${(s.result?.duration || 0).toFixed(1)}s · ${s.result?.shot_count} shots`;
+        $('exportBtn').disabled = false;
+        $('finalCard').classList.remove('hidden');
+        $('finalVideo').src = s.video_url;
+        $('finalDownload').href = s.video_url;
+        toast('Export complete');
+      } else if (s.status === 'failed') {
+        clearInterval(state._exportTimer);
+        $('exportStatus').textContent = `✗ ${s.error || 'failed'}`;
+        $('exportBtn').disabled = false;
+        toast('Export failed: ' + (s.error || 'unknown'), true);
+      }
+    } catch (e) {
+      /* swallow transient errors */
+    }
+  }, 1500);
 }
 
 // =========================================================================
