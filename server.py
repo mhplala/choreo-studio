@@ -170,6 +170,12 @@ def project(pid):
                 s["video_url"] = tos_presign(s["video_tos_key"], expires=3600)
             if s.get("preview_tos_key"):
                 s["preview_url"] = tos_presign(s["preview_tos_key"], expires=3600)
+        # presign bible character/location reference images
+        b = p.get("bible") or {}
+        for kind in ("characters", "locations"):
+            for entry in (b.get(kind) or []):
+                if entry.get("reference_tos_key"):
+                    entry["reference_url"] = tos_presign(entry["reference_tos_key"], expires=3600)
         return jsonify(p)
     if request.method == "DELETE":
         storage.delete_project(pid)
@@ -284,8 +290,145 @@ def patch_bible(pid):
     body = request.get_json() or {}
     if not isinstance(body, dict):
         return jsonify({"error": "body must be an object"}), 400
+    # Preserve existing reference_tos_key fields on each entry when PATCHing
+    # the bible — the client may send a partial object without images.
+    current = storage.get_project(pid)["bible"]
+    for kind in ("characters", "locations"):
+        new_list = body.get(kind, []) or []
+        old_list = current.get(kind, []) or []
+        old_refs = {e.get("id"): e.get("reference_tos_key") for e in old_list if e.get("id")}
+        for e in new_list:
+            eid = e.get("id")
+            if eid and old_refs.get(eid) and not e.get("reference_tos_key"):
+                e["reference_tos_key"] = old_refs[eid]
     updated = storage.update_project(pid, bible=body)
+    # Attach presigned preview urls so the frontend can show images.
+    b = updated["bible"]
+    for kind in ("characters", "locations"):
+        for e in b.get(kind, []):
+            if e.get("reference_tos_key"):
+                e["reference_url"] = tos_presign(e["reference_tos_key"], expires=3600)
     return jsonify(updated)
+
+
+def _bible_find(project, kind: str, eid: str):
+    """Return (index, entry) for the bible entry, or (None, None)."""
+    entries = (project.get("bible") or {}).get(kind) or []
+    for i, e in enumerate(entries):
+        if e.get("id") == eid:
+            return i, e
+    return None, None
+
+
+def _save_bible_entry(pid: str, kind: str, eid: str, ref_key: str):
+    """Update a single bible entry's reference_tos_key in-place."""
+    p = storage.get_project(pid)
+    b = p.get("bible") or {}
+    entries = b.get(kind) or []
+    for e in entries:
+        if e.get("id") == eid:
+            e["reference_tos_key"] = ref_key
+            break
+    storage.update_project(pid, bible=b)
+
+
+@app.route("/api/projects/<pid>/bible/<kind>/<eid>/upload", methods=["POST"])
+@require_auth
+def bible_upload_image(pid, kind, eid):
+    if kind not in ("characters", "locations"):
+        return jsonify({"error": "kind must be characters|locations"}), 400
+    p = storage.get_project(pid)
+    if not p:
+        return jsonify({"error": "project not found"}), 404
+    _, entry = _bible_find(p, kind, eid)
+    if not entry:
+        return jsonify({"error": f"{kind}/{eid} not found in bible"}), 404
+    if "file" not in request.files:
+        return jsonify({"error": "missing file"}), 400
+    f = request.files["file"]
+    raw = f.read()
+    # Auto-mask faces (same as element uploads) so Seedance privacy passes.
+    face_count = 0
+    ext = (Path(f.filename).suffix or ".jpg").lower()
+    if ext not in (".jpg", ".jpeg", ".png", ".webp"):
+        ext = ".jpg"
+    try:
+        masked, face_count = faces.mask_faces(raw)
+        if face_count > 0:
+            raw = masked
+            ext = ".png"
+    except Exception:
+        pass
+    key = f"dance-gen/studio/projects/{pid}/bible/{kind}/{eid}{ext}"
+    tos_upload_bytes(raw, key)
+    _save_bible_entry(pid, kind, eid, key)
+    return jsonify({
+        "reference_tos_key": key,
+        "reference_url": tos_presign(key, expires=3600),
+        "faces_masked": face_count,
+    })
+
+
+@app.route("/api/projects/<pid>/bible/<kind>/<eid>/generate", methods=["POST"])
+@require_auth
+def bible_generate_image(pid, kind, eid):
+    if kind not in ("characters", "locations"):
+        return jsonify({"error": "kind must be characters|locations"}), 400
+    p = storage.get_project(pid)
+    if not p:
+        return jsonify({"error": "project not found"}), 404
+    _, entry = _bible_find(p, kind, eid)
+    if not entry:
+        return jsonify({"error": f"{kind}/{eid} not found"}), 404
+    # Build a Seedream prompt from the entry's visual description + project style.
+    body = request.get_json() or {}
+    override = (body.get("prompt") or "").strip()
+    visual = (entry.get("visual") or "").strip()
+    bible_style = (p["bible"].get("visual_bible") or "").strip()
+    prompt_parts = []
+    if bible_style:
+        prompt_parts.append(bible_style)
+    if kind == "characters":
+        prompt_parts.append(f"角色：{entry.get('name') or ''}，{visual}")
+    else:
+        prompt_parts.append(f"场景：{entry.get('name') or ''}，{visual}")
+    if override:
+        prompt_parts.append(override)
+    final_prompt = "；".join([p for p in prompt_parts if p]) or "a cinematic reference"
+    # Pick a sensible default size based on kind + project ratio.
+    ratio = (p.get("settings") or {}).get("ratio", "16:9")
+    size_map = {"1:1": "2048x2048", "9:16": "1536x2730", "16:9": "2730x1536",
+                "3:4": "1792x2304", "4:3": "2304x1792"}
+    size = size_map.get(ratio, "2048x2048")
+    try:
+        url = models.seedream_generate(ARK_API_KEY, SEEDREAM_MODEL, final_prompt, size=size)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 502
+    img_bytes = requests.get(url, timeout=120).content
+    key = f"dance-gen/studio/projects/{pid}/bible/{kind}/{eid}.png"
+    tos_upload_bytes(img_bytes, key)
+    _save_bible_entry(pid, kind, eid, key)
+    return jsonify({
+        "reference_tos_key": key,
+        "reference_url": tos_presign(key, expires=3600),
+    })
+
+
+@app.route("/api/projects/<pid>/bible/<kind>/<eid>/image", methods=["DELETE"])
+@require_auth
+def bible_delete_image(pid, kind, eid):
+    if kind not in ("characters", "locations"):
+        return jsonify({"error": "kind must be characters|locations"}), 400
+    p = storage.get_project(pid)
+    if not p:
+        return jsonify({"error": "project not found"}), 404
+    b = p.get("bible") or {}
+    for e in (b.get(kind) or []):
+        if e.get("id") == eid:
+            e.pop("reference_tos_key", None)
+            break
+    storage.update_project(pid, bible=b)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/projects/<pid>/shots/<sid>/preview", methods=["POST"])

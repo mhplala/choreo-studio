@@ -225,8 +225,29 @@ input, select, textarea { font:inherit; color:inherit; }
                 font-size:12px; outline:0; font-family:inherit; line-height:1.5; resize:vertical; }
 .bible-global:focus { border-color:var(--teal); }
 .bible-list { display:flex; flex-direction:column; gap:8px; }
-.bible-item { display:grid; grid-template-columns: 120px 1fr auto; gap:10px; padding:8px 10px;
+.bible-item { display:grid; grid-template-columns: 72px 120px 1fr auto; gap:10px; padding:8px 10px;
               background:var(--bg-3); border:1px solid var(--line); border-radius:8px; align-items:start; }
+.bible-img {
+  width:72px; height:72px; border-radius:6px; background:#000;
+  border:1px solid var(--line-2); overflow:hidden;
+  display:flex; align-items:center; justify-content:center; position:relative;
+  cursor:pointer;
+}
+.bible-img img { width:100%; height:100%; object-fit:cover; display:block; }
+.bible-img .placeholder { color:var(--text-mute); font-size:10px; text-align:center; padding:4px; line-height:1.3; }
+.bible-img .mini-actions {
+  position:absolute; inset:auto 0 0 0; background:rgba(0,0,0,0.7);
+  display:flex; gap:2px; opacity:0; transition:opacity 120ms;
+}
+.bible-img:hover .mini-actions { opacity:1; }
+.bible-img .mini-actions button {
+  flex:1; background:transparent; color:white; font-size:10px; padding:3px 0; cursor:pointer; border:0;
+}
+.bible-img .mini-actions button:hover { background:rgba(255,255,255,0.1); }
+.bible-img .gen-indicator {
+  position:absolute; inset:0; background:rgba(0,0,0,0.7);
+  display:flex; align-items:center; justify-content:center;
+}
 .bible-item input, .bible-item textarea {
   width:100%; padding:5px 8px; border-radius:4px; background:var(--bg);
   border:1px solid var(--line); color:var(--text); font-size:12px; outline:0; font-family:inherit;
@@ -724,11 +745,25 @@ function renderBibleList(domId, kind, items) {
     el.innerHTML = `<div style="font-size:11px;color:var(--text-mute);padding:4px 0;">还没有 ${kind}，点上面的 + 按钮加一个</div>`;
     return;
   }
+  const busy = state.bibleBusy || new Set();
   for (let i = 0; i < items.length; i++) {
     const it = items[i];
+    const key = `${kind}:${it.id}`;
+    const isBusy = busy.has(key);
     const row = document.createElement('div');
     row.className = 'bible-item';
+    const imgHtml = it.reference_url
+      ? `<img src="${escapeHtml(it.reference_url)}"/>`
+      : `<div class="placeholder">${isBusy ? '<span class="spin"></span>' : '🖼<br>no ref'}</div>`;
     row.innerHTML = `
+      <div class="bible-img" data-bi-kind="${kind}" data-bi-id="${escapeHtml(it.id || '')}">
+        ${imgHtml}
+        <div class="mini-actions">
+          <button onclick="bibleGenImage('${kind}', '${escapeHtml(it.id || '')}')">✨</button>
+          <button onclick="bibleUploadImage('${kind}', '${escapeHtml(it.id || '')}')">⬆</button>
+          ${it.reference_url ? `<button onclick="bibleDelImage('${kind}', '${escapeHtml(it.id || '')}')">×</button>` : ''}
+        </div>
+      </div>
       <div class="name-col">
         <input value="${escapeHtml(it.name || '')}" placeholder="Name" data-bi-kind="${kind}" data-bi-idx="${i}" data-bi-field="name"/>
         <span class="id-hint">${escapeHtml(it.id || '')}</span>
@@ -738,6 +773,80 @@ function renderBibleList(domId, kind, items) {
     `;
     el.appendChild(row);
   }
+}
+
+async function bibleGenImage(kind, eid) {
+  if (!eid) { toast('Entry needs an id first', true); return; }
+  state.bibleBusy = state.bibleBusy || new Set();
+  state.bibleBusy.add(`${kind}:${eid}`);
+  renderBible();
+  toast(`Generating ${kind} reference (~10-15s)…`);
+  try {
+    // Auto-save the bible so server-side has this entry's current name/visual
+    // before Seedream reads them as the gen prompt.
+    await _collectAndSaveBible(true);
+    const resp = await api(`/api/projects/${state.currentId}/bible/${kind}/${eid}/generate`,
+                           { method: 'POST', body: JSON.stringify({}) });
+    // Find and update the entry
+    const list = state.project.bible[kind] || [];
+    const e = list.find(x => x.id === eid);
+    if (e) {
+      e.reference_tos_key = resp.reference_tos_key;
+      e.reference_url = resp.reference_url;
+    }
+    toast('Reference image ready');
+  } catch (e) { toast(e.message, true); }
+  finally {
+    state.bibleBusy.delete(`${kind}:${eid}`);
+    renderBible();
+    renderShots();
+  }
+}
+
+function bibleUploadImage(kind, eid) {
+  if (!eid) { toast('Entry needs an id first', true); return; }
+  const inp = document.createElement('input');
+  inp.type = 'file';
+  inp.accept = 'image/*';
+  inp.onchange = async (e) => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const fd = new FormData();
+    fd.append('file', f);
+    state.bibleBusy = state.bibleBusy || new Set();
+    state.bibleBusy.add(`${kind}:${eid}`);
+    renderBible();
+    try {
+      // Auto-save bible so the entry definitely exists server-side.
+      await _collectAndSaveBible(true);
+      const resp = await api(`/api/projects/${state.currentId}/bible/${kind}/${eid}/upload`,
+                             { method: 'POST', body: fd });
+      const list = state.project.bible[kind] || [];
+      const it = list.find(x => x.id === eid);
+      if (it) {
+        it.reference_tos_key = resp.reference_tos_key;
+        it.reference_url = resp.reference_url;
+      }
+      toast(resp.faces_masked > 0 ? `Uploaded — ${resp.faces_masked} face(s) auto-masked` : 'Uploaded');
+    } catch (e) { toast(e.message, true); }
+    finally {
+      state.bibleBusy.delete(`${kind}:${eid}`);
+      renderBible();
+      renderShots();
+    }
+  };
+  inp.click();
+}
+
+async function bibleDelImage(kind, eid) {
+  if (!confirm('Remove this reference image?')) return;
+  try {
+    await api(`/api/projects/${state.currentId}/bible/${kind}/${eid}/image`, { method: 'DELETE' });
+    const list = state.project.bible[kind] || [];
+    const e = list.find(x => x.id === eid);
+    if (e) { delete e.reference_tos_key; delete e.reference_url; }
+    renderBible();
+  } catch (e) { toast(e.message, true); }
 }
 
 function bibleAddEntry(kind) {
@@ -758,26 +867,30 @@ function bibleDelete(kind, idx) {
   renderShots();
 }
 
-async function saveBible() {
+async function _collectAndSaveBible(silent = false) {
   const b = state.project.bible || { visual_bible: '', characters: [], locations: [] };
   b.visual_bible = $('bibleStyle').value.trim();
-  // collect updates from inputs
-  document.querySelectorAll('[data-bi-kind]').forEach(inp => {
+  document.querySelectorAll('[data-bi-kind][data-bi-idx]').forEach(inp => {
     const kind = inp.dataset.biKind;
     const idx = parseInt(inp.dataset.biIdx, 10);
     const field = inp.dataset.biField;
     if (b[kind] && b[kind][idx]) b[kind][idx][field] = inp.value;
   });
-  try {
-    const updated = await api(`/api/projects/${state.currentId}/bible`, {
-      method: 'PATCH',
-      body: JSON.stringify(b),
-    });
-    state.project.bible = updated.bible;
+  const updated = await api(`/api/projects/${state.currentId}/bible`, {
+    method: 'PATCH',
+    body: JSON.stringify(b),
+  });
+  state.project.bible = updated.bible;
+  if (!silent) {
     renderBible();
     renderShots();
     toast('Bible saved');
-  } catch (e) { toast(e.message, true); }
+  }
+}
+
+async function saveBible() {
+  try { await _collectAndSaveBible(false); }
+  catch (e) { toast(e.message, true); }
 }
 
 async function saveSettings(patch) {

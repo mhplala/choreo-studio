@@ -100,6 +100,24 @@ def _build_payload_content(prompt: str, element_urls: list[str],
     return content
 
 
+def bible_reference_keys(bible: dict, shot: dict) -> list[str]:
+    """Collect TOS keys for any reference images attached to the characters
+    and location that appear in this shot. Used so Seedance gets the user-
+    curated visual anchors automatically — no per-shot manual attaching."""
+    keys: list[str] = []
+    char_ids = set(shot.get("character_ids") or [])
+    for c in (bible.get("characters") or []):
+        if c.get("id") in char_ids and c.get("reference_tos_key"):
+            keys.append(c["reference_tos_key"])
+    loc_id = shot.get("location_id") or ""
+    if loc_id:
+        for l in (bible.get("locations") or []):
+            if l.get("id") == loc_id and l.get("reference_tos_key"):
+                keys.append(l["reference_tos_key"])
+                break
+    return keys
+
+
 def compose_prompt(bible: dict, shot: dict) -> str:
     """Build the full Seedance prompt from the project's bible and this shot's
     structured fields. This is the core of cross-shot continuity: every shot's
@@ -158,6 +176,13 @@ def _run_one_shot(project_id: str, shot_id: str, chain_from_prev: bool):
             if el:
                 element_urls.append(_presign(el["tos_key"]))
 
+        # Auto-attach bible reference images for the characters/location this
+        # shot uses. This is the core payoff of the Visual Bible: one click
+        # generates refs once, every shot that mentions that character or
+        # location automatically gets them attached.
+        bible = (project or {}).get("bible") or {}
+        bible_ref_urls = [_presign(k) for k in bible_reference_keys(bible, shot)]
+
         # The Seedream-generated preview (if any) locks composition: attach as
         # first-frame reference. Strongly outranks chain mode when both exist.
         first_frame_url = None
@@ -192,7 +217,7 @@ def _run_one_shot(project_id: str, shot_id: str, chain_from_prev: bool):
         # whether we give it any references:
         #   - pure t2v (no refs): only 5 or 10 seconds accepted
         #   - i2v / r2v (with image or video ref): 5-12 seconds
-        has_ref = bool(element_urls) or bool(first_frame_url)
+        has_ref = bool(element_urls) or bool(first_frame_url) or bool(bible_ref_urls)
         requested = int(shot.get("duration_sec", 9))
         if has_ref:
             duration = max(5, min(12, requested))
@@ -211,13 +236,19 @@ def _run_one_shot(project_id: str, shot_id: str, chain_from_prev: bool):
 
         # Compose the full prompt from project bible + shot structured fields,
         # so cross-shot continuity (character, location, style) is baked in.
-        bible = (project or {}).get("bible") or {}
         full_prompt = compose_prompt(bible, shot)
+
+        # Reference image order matters: first_frame (if any) locks composition
+        # most strongly, then bible refs (style/character/location anchors),
+        # then user-attached elements. Cap at 4 to stay well under Seedance's
+        # internal limit on reference counts.
+        all_refs = ([first_frame_url] if first_frame_url else []) + bible_ref_urls + element_urls
+        all_refs = all_refs[:4]
 
         task_id = models.seedance_submit(
             _ARK_KEY, model_id,
             prompt=full_prompt,
-            image_urls=([first_frame_url] if first_frame_url else []) + element_urls,
+            image_urls=all_refs,
             ratio=ratio, resolution=resolution,
             duration=duration, generate_audio=gen_audio,
         )
