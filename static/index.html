@@ -392,6 +392,19 @@ input, select, textarea { font:inherit; color:inherit; }
 .toast.show { transform:translateY(0); opacity:1; }
 .toast.err { border-color:var(--err); }
 
+/* language toggle */
+.lang-toggle {
+  display:inline-flex; gap:2px; background:var(--bg-2); border:1px solid var(--line);
+  border-radius:100px; padding:2px;
+}
+.lang-btn {
+  font-size:11px; padding:3px 10px; border-radius:100px;
+  background:transparent; color:var(--text-mute); border:0; cursor:pointer;
+  font-family:inherit;
+}
+.lang-btn:hover { color:var(--text); }
+.lang-btn.active { background:var(--teal-soft); color:var(--teal); }
+
 /* responsive */
 @media (max-width:800px) {
   .app { grid-template-columns: 1fr; }
@@ -406,17 +419,21 @@ input, select, textarea { font:inherit; color:inherit; }
   <aside class="sidebar">
     <div class="brand">
       <div class="brand-mark"></div>
-      <div><div class="brand-name">Choreo Studio</div><div style="font-size:10px;color:var(--text-mute);letter-spacing:0.1em;">MULTI-SHOT AI</div></div>
+      <div><div class="brand-name">Choreo Studio</div><div data-t="brand_sub" style="font-size:10px;color:var(--text-mute);letter-spacing:0.1em;"></div></div>
     </div>
 
-    <button class="btn primary" onclick="newProject()">+ New project</button>
+    <button class="btn primary" data-t="new_project" onclick="newProject()"></button>
 
-    <div class="section-label">Projects</div>
+    <div class="section-label" data-t="projects"></div>
     <div class="proj-list" id="projList"></div>
 
     <div style="flex:1"></div>
-    <div style="font-size:10px;color:var(--text-mute);padding:8px 4px;border-top:1px solid var(--line);">
-      Powered by Seedance · Seedream · Doubao
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 4px;border-top:1px solid var(--line);">
+      <span data-t="powered_by" style="font-size:10px;color:var(--text-mute);"></span>
+      <span class="lang-toggle">
+        <button class="lang-btn" data-lang="en" onclick="setLang('en')">EN</button>
+        <button class="lang-btn" data-lang="zh" onclick="setLang('zh')">中</button>
+      </span>
     </div>
   </aside>
 
@@ -427,17 +444,15 @@ input, select, textarea { font:inherit; color:inherit; }
         <input class="proj-title" id="projTitle" value="Untitled" onblur="saveProjectTitle()"/>
         <div class="topbar-right">
           <span class="status-pill" id="projStatus">draft</span>
-          <button class="btn ghost danger" onclick="deleteCurrentProject()">Delete</button>
+          <button class="btn ghost danger" data-t="delete" onclick="deleteCurrentProject()"></button>
         </div>
       </div>
 
       <!-- Project-level generation settings -->
       <div class="card" id="projSettings" style="display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:12px 16px;margin-bottom:14px;">
-        <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--text-mute);margin-right:8px;">
-          Generation defaults
-        </div>
+        <div data-t="gen_defaults" style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--text-mute);margin-right:8px;"></div>
         <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);">
-          Ratio
+          <span data-t="ratio"></span>
           <select id="setRatio" onchange="saveSettings({ratio: this.value})" class="duration-input" style="width:auto;">
             <option value="16:9">16:9</option>
             <option value="9:16">9:16</option>
@@ -448,27 +463,25 @@ input, select, textarea { font:inherit; color:inherit; }
           </select>
         </label>
         <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-dim);">
-          Resolution
+          <span data-t="resolution"></span>
           <select id="setResolution" onchange="saveSettings({resolution: this.value})" class="duration-input" style="width:auto;">
-            <option value="480p">480p · 标清（最便宜）</option>
-            <option value="720p">720p · 高清</option>
-            <option value="1080p">1080p · 超清（最贵）</option>
+            <option value="480p" data-t="res_480p"></option>
+            <option value="720p" data-t="res_720p"></option>
+            <option value="1080p" data-t="res_1080p"></option>
           </select>
         </label>
         <label class="toggle-row" style="font-size:12px;">
           <input type="checkbox" id="setAudio" onchange="saveSettings({generate_audio: this.checked})"/>
-          Generate audio (Seedance 自带配音)
+          <span data-t="gen_audio_label"></span>
         </label>
-        <span class="mono" style="margin-left:auto;font-size:10px;color:var(--text-mute);" id="settingsHint">
-          Changes apply to newly generated shots · re-Generate existing shots to pick up new settings
-        </span>
+        <span class="mono" data-t="settings_hint" style="margin-left:auto;font-size:10px;color:var(--text-mute);" id="settingsHint"></span>
       </div>
 
       <div class="tabs">
         <div class="tab active" data-tab="storyboard" onclick="switchTab('storyboard')">
-          Storyboard <span class="tab-badge" id="shotsCount">0</span>
+          <span data-t="tab_storyboard"></span> <span class="tab-badge" id="shotsCount">0</span>
         </div>
-        <div class="tab" data-tab="timeline" onclick="switchTab('timeline')">Timeline</div>
+        <div class="tab" data-tab="timeline" onclick="switchTab('timeline')"><span data-t="tab_timeline"></span></div>
       </div>
 
       <!-- Elements tab — DEPRECATED: merged into Visual Bible > Assets.
@@ -498,19 +511,17 @@ input, select, textarea { font:inherit; color:inherit; }
       <!-- Storyboard tab -->
       <div class="tab-panel active" data-panel="storyboard">
         <div class="card">
-          <div style="font-size:14px;font-weight:600;margin-bottom:6px;">剧本 / Script</div>
-          <div style="font-size:12px;color:var(--text-dim);margin-bottom:10px;">
-            用一段文字描述你想要的视频。点 Auto-storyboard 让 AI 同时出 Visual Bible（风格/角色/场景）和分镜。
-          </div>
-          <textarea class="script-box" id="scriptBox" placeholder="例如：一支年轻舞者在赛博朋克都市的屋顶跳了一段 20 秒的街舞，从日落到夜晚。"></textarea>
+          <div data-t="script_title" style="font-size:14px;font-weight:600;margin-bottom:6px;"></div>
+          <div data-t="script_desc" style="font-size:12px;color:var(--text-dim);margin-bottom:10px;"></div>
+          <textarea class="script-box" id="scriptBox" data-t-ph="script_ph"></textarea>
           <div class="story-actions">
-            <button class="btn primary" onclick="autoStoryboard()">✨ Auto-storyboard</button>
-            <button class="btn" onclick="addEmptyShot()">+ Add shot</button>
-            <button class="btn" onclick="generateAllPreviews()">🖼 Preview all</button>
-            <button class="btn" onclick="generateAllShots()">▶ Generate all</button>
+            <button class="btn primary" data-t="btn_auto_story" onclick="autoStoryboard()"></button>
+            <button class="btn" data-t="btn_add_shot" onclick="addEmptyShot()"></button>
+            <button class="btn" data-t="btn_preview_all" onclick="generateAllPreviews()"></button>
+            <button class="btn" data-t="btn_generate_all" onclick="generateAllShots()"></button>
             <label class="toggle-row" style="margin-left:14px;">
               <input type="checkbox" id="chainToggle"/>
-              Chain shots
+              <span data-t="chain_shots"></span>
             </label>
             <span class="mono" style="font-size:11px;color:var(--text-mute);margin-left:auto;" id="storyHint"></span>
           </div>
@@ -519,37 +530,38 @@ input, select, textarea { font:inherit; color:inherit; }
         <!-- Visual Bible (collapsible) -->
         <details class="bible-panel" id="biblePanel">
           <summary>
-            📖 Visual Bible
-            <span class="sub" id="bibleSummary">总风格 + 角色 + 场景，会自动拼到每个镜头 prompt 里</span>
+            <span data-t="bible_title"></span>
+            <span class="sub" id="bibleSummary"></span>
           </summary>
           <div class="bible-panel-body">
             <div class="bible-section">
-              <h4>Visual style · 整体视觉风格</h4>
-              <textarea class="bible-global" id="bibleStyle" placeholder="例如：35mm 胶片质感，暖色调，浅景深，2D 扁平卡通描边"></textarea>
+              <h4 data-t="bible_style"></h4>
+              <textarea class="bible-global" id="bibleStyle" data-t-ph="bible_style_ph"></textarea>
             </div>
             <div class="bible-section">
               <h4 style="display:flex;align-items:center;gap:8px;">
-                Characters · 角色
-                <button class="btn small" onclick="bibleAddEntry('characters')">+ Character</button>
+                <span data-t="bible_chars"></span>
+                <button class="btn small" data-t="bible_add_char" onclick="bibleAddEntry('characters')"></button>
               </h4>
               <div class="bible-list" id="bibleChars"></div>
             </div>
             <div class="bible-section">
               <h4 style="display:flex;align-items:center;gap:8px;">
-                Locations · 场景
-                <button class="btn small" onclick="bibleAddEntry('locations')">+ Location</button>
+                <span data-t="bible_locs"></span>
+                <button class="btn small" data-t="bible_add_loc" onclick="bibleAddEntry('locations')"></button>
               </h4>
               <div class="bible-list" id="bibleLocs"></div>
             </div>
             <div class="bible-section">
               <h4 style="display:flex;align-items:center;gap:8px;">
-                Assets · 道具 / 其他 <span style="font-size:10px;color:var(--text-mute);font-weight:400;letter-spacing:0;text-transform:none;">(ad-hoc per shot)</span>
-                <button class="btn small" onclick="bibleAddEntry('assets')">+ Asset</button>
+                <span data-t="bible_assets"></span>
+                <span data-t="bible_assets_sub" style="font-size:10px;color:var(--text-mute);font-weight:400;letter-spacing:0;text-transform:none;"></span>
+                <button class="btn small" data-t="bible_add_asset" onclick="bibleAddEntry('assets')"></button>
               </h4>
               <div class="bible-list" id="bibleAssets"></div>
             </div>
             <div style="display:flex;justify-content:flex-end;">
-              <button class="btn primary" onclick="saveBible()">Save bible</button>
+              <button class="btn primary" data-t="bible_save" onclick="saveBible()"></button>
             </div>
           </div>
         </details>
@@ -565,28 +577,24 @@ input, select, textarea { font:inherit; color:inherit; }
       <div class="tab-panel" data-panel="timeline">
         <div class="card" style="display:flex;gap:10px;align-items:center;justify-content:space-between;">
           <div>
-            <div style="font-size:14px;font-weight:600;">Timeline · 成片导出</div>
-            <div style="font-size:12px;color:var(--text-dim);margin-top:2px;" id="timelineHint">
-              拖拽重排 · trim in/out · 镜头间选转场 · 导出指定比例
-            </div>
+            <div data-t="timeline_title" style="font-size:14px;font-weight:600;"></div>
+            <div style="font-size:12px;color:var(--text-dim);margin-top:2px;" id="timelineHint"></div>
           </div>
           <div style="display:flex;gap:8px;align-items:center;">
             <span class="mono" style="font-size:11px;color:var(--text-mute);" id="exportStatus"></span>
-            <button class="btn primary" id="exportBtn" onclick="openExportModal()">📼 Export…</button>
+            <button class="btn primary" id="exportBtn" data-t="btn_export" onclick="openExportModal()"></button>
           </div>
         </div>
 
         <div class="card hidden" id="finalCard">
-          <div style="font-size:14px;font-weight:600;margin-bottom:10px;">最终成片 <span id="finalMeta" class="mono" style="font-size:11px;color:var(--text-mute);margin-left:8px;"></span></div>
+          <div style="font-size:14px;font-weight:600;margin-bottom:10px;"><span data-t="final_title"></span> <span id="finalMeta" class="mono" style="font-size:11px;color:var(--text-mute);margin-left:8px;"></span></div>
           <video id="finalVideo" controls playsinline style="width:100%;max-width:720px;border-radius:8px;background:#000;"></video>
           <div style="margin-top:10px;">
-            <a id="finalDownload" class="btn" download>⬇ Download</a>
+            <a id="finalDownload" class="btn" data-t="btn_download" download></a>
           </div>
         </div>
 
-        <div style="font-size:11px;color:var(--text-mute);letter-spacing:0.14em;text-transform:uppercase;margin:18px 4px 6px;">
-          Shots in order — drag ⠿ to reorder
-        </div>
+        <div data-t="shots_in_order" style="font-size:11px;color:var(--text-mute);letter-spacing:0.14em;text-transform:uppercase;margin:18px 4px 6px;"></div>
         <div id="timelineStrip" style="display:flex;flex-direction:column;gap:20px;"></div>
       </div>
     </div>
@@ -595,7 +603,7 @@ input, select, textarea { font:inherit; color:inherit; }
     <div id="landing" class="hidden">
       <div class="empty-state" style="margin-top:80px;">
         <div class="big">👋</div>
-        <div class="msg">左边新建一个 project，开始做视频。</div>
+        <div class="msg" data-t="landing_msg"></div>
       </div>
     </div>
   </main>
@@ -604,55 +612,55 @@ input, select, textarea { font:inherit; color:inherit; }
 <!-- Generate modal -->
 <div class="modal-backdrop hidden" id="genModal">
   <div class="modal">
-    <h3>✨ Generate Element</h3>
-    <div class="modal-sub">用文字描述你想要的角色 / 场景 / 道具 — Seedream 会出一张 2K 高清图可直接拿来当 reference。</div>
+    <h3 data-t="gen_title"></h3>
+    <div class="modal-sub" data-t="gen_sub"></div>
 
     <div class="row">
       <div>
-        <label>Kind</label>
+        <label data-t="gen_kind"></label>
         <select id="genKind">
-          <option value="character">🧑 Character 角色</option>
-          <option value="style">🌆 Style / Background 风格/场景</option>
-          <option value="prop">📦 Prop 道具</option>
+          <option value="character" data-t="kind_character"></option>
+          <option value="style" data-t="kind_style"></option>
+          <option value="prop" data-t="kind_prop"></option>
         </select>
       </div>
       <div>
-        <label>Size</label>
+        <label data-t="gen_size"></label>
         <select id="genSize">
-          <option value="2048x2048">2048×2048 · 方形 1:1</option>
-          <option value="1536x2730">1536×2730 · 竖屏 9:16</option>
-          <option value="2730x1536">2730×1536 · 横屏 16:9</option>
-          <option value="1792x2304">1792×2304 · 竖 3:4</option>
-          <option value="2304x1792">2304×1792 · 横 4:3</option>
+          <option value="2048x2048">2048×2048 · 1:1</option>
+          <option value="1536x2730">1536×2730 · 9:16</option>
+          <option value="2730x1536">2730×1536 · 16:9</option>
+          <option value="1792x2304">1792×2304 · 3:4</option>
+          <option value="2304x1792">2304×1792 · 4:3</option>
         </select>
       </div>
     </div>
 
-    <label>Name (optional)</label>
-    <input id="genName" placeholder="e.g. Protagonist — Mei"/>
+    <label data-t="gen_name"></label>
+    <input id="genName" data-t-ph="gen_name_ph"/>
 
-    <label>Prompt</label>
-    <textarea id="genPrompt" placeholder="详细描述角色外观、服装、动作、画风、光照、背景等。越具体效果越稳。"></textarea>
+    <label data-t="gen_prompt"></label>
+    <textarea id="genPrompt" data-t-ph="gen_prompt_ph"></textarea>
 
     <div class="prompt-tips">
-      <strong>快捷补词</strong>（点击追加到 prompt）：
+      <strong data-t="gen_tips"></strong>
       <div style="margin-top:6px;">
-        <span class="prompt-chip" onclick="appendPrompt('flat 2D cartoon style, bold outline')">扁平 2D 卡通</span>
-        <span class="prompt-chip" onclick="appendPrompt('cinematic lighting, shallow depth of field')">电影感光影</span>
-        <span class="prompt-chip" onclick="appendPrompt('photorealistic portrait, studio lighting')">写实肖像</span>
-        <span class="prompt-chip" onclick="appendPrompt('anime style, clean lineart')">动漫风</span>
-        <span class="prompt-chip" onclick="appendPrompt('pixel art')">像素</span>
-        <span class="prompt-chip" onclick="appendPrompt('cyberpunk neon city background')">赛博朋克</span>
-        <span class="prompt-chip" onclick="appendPrompt('minimalist, white background')">极简白底</span>
-        <span class="prompt-chip" onclick="appendPrompt('centered composition, facing camera')">居中正面</span>
-        <span class="prompt-chip" onclick="appendPrompt('full body shot')">全身</span>
-        <span class="prompt-chip" onclick="appendPrompt('half body portrait')">半身</span>
+        <span class="prompt-chip" onclick="appendPrompt('flat 2D cartoon style, bold outline')">flat 2D</span>
+        <span class="prompt-chip" onclick="appendPrompt('cinematic lighting, shallow depth of field')">cinematic</span>
+        <span class="prompt-chip" onclick="appendPrompt('photorealistic portrait, studio lighting')">photoreal</span>
+        <span class="prompt-chip" onclick="appendPrompt('anime style, clean lineart')">anime</span>
+        <span class="prompt-chip" onclick="appendPrompt('pixel art')">pixel</span>
+        <span class="prompt-chip" onclick="appendPrompt('cyberpunk neon city background')">cyberpunk</span>
+        <span class="prompt-chip" onclick="appendPrompt('minimalist, white background')">minimalist</span>
+        <span class="prompt-chip" onclick="appendPrompt('centered composition, facing camera')">centered</span>
+        <span class="prompt-chip" onclick="appendPrompt('full body shot')">full body</span>
+        <span class="prompt-chip" onclick="appendPrompt('half body portrait')">half body</span>
       </div>
     </div>
 
     <div class="modal-actions">
-      <button class="btn ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn primary" id="genSubmit" onclick="submitGenerate()">✨ Generate</button>
+      <button class="btn ghost" data-t="modal_cancel" onclick="closeModal()"></button>
+      <button class="btn primary" id="genSubmit" data-t="btn_generate_submit" onclick="submitGenerate()"></button>
     </div>
   </div>
 </div>
@@ -660,37 +668,37 @@ input, select, textarea { font:inherit; color:inherit; }
 <!-- Template picker modal -->
 <div class="modal-backdrop hidden" id="tmplModal">
   <div class="modal" style="max-width:760px;">
-    <h3>🎬 新项目 · 选一个模板</h3>
-    <div class="modal-sub">模板会预填 Visual Bible 和一些默认设置。你之后随时可以改。</div>
+    <h3 data-t="tmpl_title"></h3>
+    <div class="modal-sub" data-t="tmpl_sub"></div>
     <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:10px;">
       <div class="tmpl-card" data-tmpl="blank">
         <div class="tmpl-icon">⬜</div>
-        <div class="tmpl-name">Blank</div>
-        <div class="tmpl-desc">完全空白，自己从零配。</div>
+        <div class="tmpl-name" data-t="tmpl_blank"></div>
+        <div class="tmpl-desc" data-t="tmpl_blank_desc"></div>
       </div>
       <div class="tmpl-card" data-tmpl="educational">
         <div class="tmpl-icon">📚</div>
-        <div class="tmpl-name">Educational</div>
-        <div class="tmpl-desc">1 讲师 + 1 教室，适合概念解释 / 教学。</div>
+        <div class="tmpl-name" data-t="tmpl_edu"></div>
+        <div class="tmpl-desc" data-t="tmpl_edu_desc"></div>
       </div>
       <div class="tmpl-card" data-tmpl="drama">
         <div class="tmpl-icon">🎭</div>
-        <div class="tmpl-name">Short Drama</div>
-        <div class="tmpl-desc">2 角色 + 2 场景，cinematic 风。</div>
+        <div class="tmpl-name" data-t="tmpl_drama"></div>
+        <div class="tmpl-desc" data-t="tmpl_drama_desc"></div>
       </div>
       <div class="tmpl-card" data-tmpl="ui_demo">
         <div class="tmpl-icon">📱</div>
-        <div class="tmpl-name">UI Demo</div>
-        <div class="tmpl-desc">产品特性展示，干净品牌感。</div>
+        <div class="tmpl-name" data-t="tmpl_ui"></div>
+        <div class="tmpl-desc" data-t="tmpl_ui_desc"></div>
       </div>
       <div class="tmpl-card" data-tmpl="meme">
         <div class="tmpl-icon">😂</div>
-        <div class="tmpl-name">Meme</div>
-        <div class="tmpl-desc">单镜头为主，9:16 竖屏。</div>
+        <div class="tmpl-name" data-t="tmpl_meme"></div>
+        <div class="tmpl-desc" data-t="tmpl_meme_desc"></div>
       </div>
     </div>
     <div class="modal-actions">
-      <button class="btn ghost" onclick="closeModal()">Cancel</button>
+      <button class="btn ghost" data-t="modal_cancel" onclick="closeModal()"></button>
     </div>
   </div>
 </div>
@@ -698,39 +706,39 @@ input, select, textarea { font:inherit; color:inherit; }
 <!-- Export modal -->
 <div class="modal-backdrop hidden" id="exportModal">
   <div class="modal">
-    <h3>📼 Export MP4</h3>
-    <div class="modal-sub">所有 done 状态的 shot 会按 timeline 顺序合成，未生成的跳过。</div>
+    <h3 data-t="export_title"></h3>
+    <div class="modal-sub" data-t="export_sub"></div>
     <div class="row">
       <div>
-        <label>Output ratio</label>
+        <label data-t="export_ratio"></label>
         <select id="expRatio">
-          <option value="">(match project — default)</option>
-          <option value="16:9">16:9 横屏</option>
-          <option value="9:16">9:16 竖屏</option>
-          <option value="1:1">1:1 方形</option>
+          <option value=""></option>
+          <option value="16:9">16:9</option>
+          <option value="9:16">9:16</option>
+          <option value="1:1">1:1</option>
           <option value="4:3">4:3</option>
           <option value="3:4">3:4</option>
-          <option value="21:9">21:9 超宽</option>
+          <option value="21:9">21:9</option>
         </select>
       </div>
       <div>
-        <label>Fit mode</label>
+        <label data-t="export_fit"></label>
         <select id="expFit">
-          <option value="contain">Contain（加黑边，不裁剪）</option>
-          <option value="cover">Cover（裁切铺满）</option>
-          <option value="fill">Fill（拉伸，会变形）</option>
+          <option value="contain" data-t="fit_contain"></option>
+          <option value="cover" data-t="fit_cover"></option>
+          <option value="fill" data-t="fit_fill"></option>
         </select>
       </div>
     </div>
-    <label>Resolution tier</label>
+    <label data-t="export_res"></label>
     <select id="expShort">
-      <option value="480">480p · 便宜</option>
-      <option value="720" selected>720p · 标准</option>
-      <option value="1080">1080p · 高清</option>
+      <option value="480" data-t="res_480p"></option>
+      <option value="720" selected data-t="res_720p"></option>
+      <option value="1080" data-t="res_1080p"></option>
     </select>
     <div class="modal-actions">
-      <button class="btn ghost" onclick="closeModal()">Cancel</button>
-      <button class="btn primary" onclick="exportProject()">Export</button>
+      <button class="btn ghost" data-t="modal_cancel" onclick="closeModal()"></button>
+      <button class="btn primary" data-t="btn_export_go" onclick="exportProject()"></button>
     </div>
   </div>
 </div>
@@ -738,13 +746,11 @@ input, select, textarea { font:inherit; color:inherit; }
 <!-- Element picker modal -->
 <div class="modal-backdrop hidden" id="pickerModal">
   <div class="modal" style="max-width:560px;">
-    <h3>Attach elements to shot <span class="mono" id="pickerShotNum" style="color:var(--text-mute);font-size:14px;font-weight:400;"></span></h3>
-    <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px;">
-      Click an element to toggle. Selected ones will be sent to Seedance as reference images for this shot.
-    </div>
+    <h3><span data-t="picker_title"></span> <span class="mono" id="pickerShotNum" style="color:var(--text-mute);font-size:14px;font-weight:400;"></span></h3>
+    <div style="font-size:12px;color:var(--text-dim);margin-bottom:12px;" data-t="picker_sub"></div>
     <div class="grid" id="pickerGrid" style="grid-template-columns:repeat(auto-fill,minmax(110px,1fr));max-height:360px;overflow-y:auto;"></div>
     <div class="modal-actions">
-      <button class="btn primary" onclick="closeModal()">Done</button>
+      <button class="btn primary" data-t="done" onclick="closeModal()"></button>
     </div>
   </div>
 </div>
@@ -753,6 +759,325 @@ input, select, textarea { font:inherit; color:inherit; }
 <div class="toast" id="toast"></div>
 
 <script>
+// =========================================================================
+// i18n
+// =========================================================================
+const T = {
+  en: {
+    // sidebar / brand
+    brand_sub: 'MULTI-SHOT AI',
+    new_project: '+ New project',
+    projects: 'Projects',
+    powered_by: 'Powered by Seedance · Seedream · Doubao',
+
+    // topbar
+    delete: 'Delete',
+    status_draft: 'draft',
+
+    // tabs
+    tab_storyboard: 'Storyboard',
+    tab_timeline: 'Timeline',
+
+    // settings bar
+    gen_defaults: 'Generation defaults',
+    ratio: 'Ratio',
+    resolution: 'Resolution',
+    res_480p: '480p · SD (cheapest)',
+    res_720p: '720p · HD',
+    res_1080p: '1080p · FHD (pricier)',
+    gen_audio_label: 'Generate audio (built into Seedance)',
+    settings_hint: 'Changes apply to newly generated shots · re-Generate existing shots to pick up new settings',
+
+    // storyboard: script card
+    script_title: 'Script',
+    script_desc: "Describe the video you want. Auto-storyboard turns it into a Visual Bible (style/characters/locations) and individual shots.",
+    script_ph: 'e.g. A young dancer performs a 20-second street-dance on a cyberpunk rooftop, from sunset to night.',
+    btn_auto_story: '✨ Auto-storyboard',
+    btn_add_shot: '+ Add shot',
+    btn_preview_all: '🖼 Preview all',
+    btn_generate_all: '▶ Generate all',
+    chain_shots: 'Chain shots',
+
+    // bible
+    bible_title: '📖 Visual Bible',
+    bible_sub: 'Global style + characters + locations — auto-injected into every shot prompt',
+    bible_sub_empty: 'Not written yet — try Auto-storyboard',
+    bible_style: 'Visual style · overall aesthetic',
+    bible_style_ph: 'e.g. 35mm film grain, warm tones, shallow DoF, flat 2D cartoon outline',
+    bible_chars: 'Characters',
+    bible_add_char: '+ Character',
+    bible_locs: 'Locations',
+    bible_add_loc: '+ Location',
+    bible_assets: 'Assets',
+    bible_assets_sub: '(ad-hoc per shot)',
+    bible_add_asset: '+ Asset',
+    bible_save: 'Save bible',
+    bible_empty_n: 'Nothing here — click the + button above',
+
+    // shot card
+    shot_label: 'SHOT',
+    shot_prompt_ph: 'Describe the action in this shot…',
+    shot_chars: 'Chars',
+    shot_location: 'Location',
+    shot_loc_none: '(no location)',
+    shot_camera: 'Camera',
+    shot_camera_ph: 'wide / close-up / POV...',
+    shot_no_chars: 'no characters defined',
+    shot_media_preview_first: 'Preview first, then Generate video',
+    shot_media_failed: 'Failed — click Regen to retry',
+    shot_media_generating: 'Generating... usually ~4 minutes',
+    shot_repreview: '↻ Re-preview',
+    shot_preview_locked: '🖼 preview locked',
+    btn_preview: '🖼 Preview',
+    btn_regen: '↻ Regen',
+    btn_generate: '▶ Generate',
+    btn_add_asset: '+ Asset',
+    shots_empty: "No shots yet — write a script above and Auto-storyboard, or + Add shot manually.",
+
+    // timeline
+    timeline_title: 'Timeline · Export',
+    timeline_hint_default: 'Drag to reorder · trim in/out · pick transitions · export at any ratio',
+    timeline_hint_no_shots: 'No shots yet. Build some in Storyboard.',
+    timeline_hint_no_done: ' shots generated yet.',
+    btn_export: '📼 Export…',
+    final_title: 'Final export',
+    btn_download: '⬇ Download',
+    shots_in_order: 'Shots in order — drag ⠿ to reorder',
+
+    // export modal
+    export_title: '📼 Export MP4',
+    export_sub: 'Stitches all done shots in timeline order. Un-generated ones are skipped.',
+    export_ratio: 'Output ratio',
+    export_ratio_match: '(match project — {r})',
+    export_fit: 'Fit mode',
+    fit_contain: 'Contain (black bars, no crop)',
+    fit_cover: 'Cover (crop to fill)',
+    fit_fill: 'Fill (stretch, may distort)',
+    export_res: 'Resolution tier',
+    cancel: 'Cancel',
+    btn_export_go: 'Export',
+
+    // generate element modal
+    gen_title: '✨ Generate element',
+    gen_sub: 'Describe the character / scene / prop you want — Seedream will produce a 2K reference image.',
+    gen_kind: 'Kind',
+    kind_character: '🧑 Character',
+    kind_style: '🌆 Style / Background',
+    kind_prop: '📦 Prop',
+    gen_size: 'Size',
+    gen_name: 'Name (optional)',
+    gen_name_ph: 'e.g. Protagonist — Mei',
+    gen_prompt: 'Prompt',
+    gen_prompt_ph: 'Detailed description: character look, clothes, action, art style, lighting, background. Specificity helps.',
+    gen_tips: 'Quick tags (click to append):',
+    btn_generate_submit: '✨ Generate',
+
+    // picker modal
+    picker_title: 'Attach assets to shot',
+    picker_sub: 'Click to toggle. Selected ones are sent to Seedance as reference images for this shot.',
+    picker_empty: 'No assets with images yet — add some in Visual Bible → Assets.',
+    done: 'Done',
+
+    // template modal
+    tmpl_title: '🎬 New project · Pick a template',
+    tmpl_sub: 'Templates pre-fill the Visual Bible and some defaults. You can edit everything later.',
+    tmpl_blank: 'Blank',
+    tmpl_blank_desc: 'Completely empty — configure from scratch.',
+    tmpl_edu: 'Educational',
+    tmpl_edu_desc: '1 presenter + 1 studio. For explainers / tutorials.',
+    tmpl_drama: 'Short Drama',
+    tmpl_drama_desc: '2 characters + 2 locations, cinematic feel.',
+    tmpl_ui: 'UI Demo',
+    tmpl_ui_desc: 'Product feature showcase, clean brand look.',
+    tmpl_meme: 'Meme',
+    tmpl_meme_desc: 'Single-shot-friendly, 9:16 portrait.',
+
+    // modal actions
+    modal_cancel: 'Cancel',
+
+    // landing
+    landing_msg: 'Create a new project on the left to get started.',
+
+    // status chips
+    status_generating: 'generating',
+    status_done: 'done',
+    status_failed: 'failed',
+
+    // toasts (common)
+    toast_bible_saved: 'Bible saved',
+    toast_element_uploaded: 'Element uploaded',
+    toast_preview_ready: 'Preview ready',
+    toast_reference_ready: 'Reference image ready',
+    toast_gen_started: 'Generation started',
+    toast_export_complete: 'Export complete',
+  },
+  zh: {
+    brand_sub: '多镜头 AI',
+    new_project: '+ 新建项目',
+    projects: '项目',
+    powered_by: 'Powered by Seedance · Seedream · Doubao',
+
+    delete: '删除',
+    status_draft: '草稿',
+
+    tab_storyboard: '分镜',
+    tab_timeline: '时间轴',
+
+    gen_defaults: '生成默认参数',
+    ratio: '比例',
+    resolution: '分辨率',
+    res_480p: '480p · 标清（最便宜）',
+    res_720p: '720p · 高清',
+    res_1080p: '1080p · 超清（最贵）',
+    gen_audio_label: '生成音频（Seedance 自带配音）',
+    settings_hint: '更改只影响新生成的镜头 · 已有镜头需点 Regen 重跑才会采用新参数',
+
+    script_title: '剧本 / Script',
+    script_desc: '用一段文字描述你想要的视频。点 Auto-storyboard 让 AI 同时生成 Visual Bible（风格/角色/场景）和分镜。',
+    script_ph: '例如：一支年轻舞者在赛博朋克都市的屋顶跳了一段 20 秒的街舞，从日落到夜晚。',
+    btn_auto_story: '✨ 自动分镜',
+    btn_add_shot: '+ 新增镜头',
+    btn_preview_all: '🖼 全部预览',
+    btn_generate_all: '▶ 全部生成',
+    chain_shots: '串联镜头',
+
+    bible_title: '📖 视觉圣经',
+    bible_sub: '整体风格 + 角色 + 场景，自动拼到每个镜头 prompt 里',
+    bible_sub_empty: '还没写 — 建议用 Auto-storyboard 自动生成',
+    bible_style: '整体视觉风格',
+    bible_style_ph: '例如：35mm 胶片质感，暖色调，浅景深，2D 扁平卡通描边',
+    bible_chars: '角色',
+    bible_add_char: '+ 新角色',
+    bible_locs: '场景',
+    bible_add_loc: '+ 新场景',
+    bible_assets: '素材',
+    bible_assets_sub: '（每个镜头按需挂）',
+    bible_add_asset: '+ 新素材',
+    bible_save: '保存 Bible',
+    bible_empty_n: '还没有条目，点上面的 + 按钮加一个',
+
+    shot_label: '镜头',
+    shot_prompt_ph: '描述这个镜头的动作…',
+    shot_chars: '角色',
+    shot_location: '场景',
+    shot_loc_none: '（无场景）',
+    shot_camera: '镜头',
+    shot_camera_ph: '远景 / 特写 / POV...',
+    shot_no_chars: '还没定义角色',
+    shot_media_preview_first: '先 Preview 出静图再 Generate 视频',
+    shot_media_failed: '失败 — 点 Regen 重试',
+    shot_media_generating: '生成中... 通常 ~4 分钟',
+    shot_repreview: '↻ 重新预览',
+    shot_preview_locked: '🖼 构图已锁',
+    btn_preview: '🖼 预览',
+    btn_regen: '↻ 重生成',
+    btn_generate: '▶ 生成',
+    btn_add_asset: '+ 素材',
+    shots_empty: '还没有镜头 — 在上面写剧本然后 Auto-storyboard，或者手动点 + 新增镜头。',
+
+    timeline_title: '时间轴 · 成片导出',
+    timeline_hint_default: '拖拽重排 · trim in/out · 选转场 · 任意比例导出',
+    timeline_hint_no_shots: '还没有镜头。先去分镜里建几个。',
+    timeline_hint_no_done: ' 个镜头已生成。',
+    btn_export: '📼 导出…',
+    final_title: '最终成片',
+    btn_download: '⬇ 下载',
+    shots_in_order: '镜头顺序 — 拖 ⠿ 重排',
+
+    export_title: '📼 导出 MP4',
+    export_sub: '按时间轴顺序串起所有 done 状态的镜头。未生成的跳过。',
+    export_ratio: '输出比例',
+    export_ratio_match: '（沿用项目 — {r}）',
+    export_fit: '适配模式',
+    fit_contain: 'Contain（加黑边，不裁剪）',
+    fit_cover: 'Cover（裁切铺满）',
+    fit_fill: 'Fill（拉伸，会变形）',
+    export_res: '分辨率',
+    cancel: '取消',
+    btn_export_go: '开始导出',
+
+    gen_title: '✨ 生成素材',
+    gen_sub: '用文字描述想要的角色 / 场景 / 道具 — Seedream 会出一张 2K 高清参考图。',
+    gen_kind: '类型',
+    kind_character: '🧑 角色',
+    kind_style: '🌆 风格 / 背景',
+    kind_prop: '📦 道具',
+    gen_size: '尺寸',
+    gen_name: '名字（可选）',
+    gen_name_ph: '例如：主角 — 美伊',
+    gen_prompt: 'Prompt',
+    gen_prompt_ph: '详细描述角色外观、服装、动作、画风、光照、背景等。越具体效果越稳。',
+    gen_tips: '快捷补词（点击追加到 prompt）：',
+    btn_generate_submit: '✨ 生成',
+
+    picker_title: '为镜头选择素材',
+    picker_sub: '点图切换选中。选中的会作为 reference_image 送给 Seedance。',
+    picker_empty: '没有带图的素材 — 去 Visual Bible → 素材 里加一些。',
+    done: '完成',
+
+    tmpl_title: '🎬 新项目 · 选一个模板',
+    tmpl_sub: '模板会预填 Visual Bible 和一些默认设置。之后随时可以改。',
+    tmpl_blank: '空白',
+    tmpl_blank_desc: '完全空白，自己从零配。',
+    tmpl_edu: '教育',
+    tmpl_edu_desc: '1 讲师 + 1 教室，适合概念解释 / 教学。',
+    tmpl_drama: '短剧',
+    tmpl_drama_desc: '2 角色 + 2 场景，cinematic 风。',
+    tmpl_ui: 'UI 演示',
+    tmpl_ui_desc: '产品特性展示，干净品牌感。',
+    tmpl_meme: '段子',
+    tmpl_meme_desc: '单镜头为主，9:16 竖屏。',
+
+    modal_cancel: '取消',
+
+    landing_msg: '在左边新建一个 project，开始做视频。',
+
+    status_generating: '生成中',
+    status_done: '完成',
+    status_failed: '失败',
+
+    toast_bible_saved: 'Bible 已保存',
+    toast_element_uploaded: '素材已上传',
+    toast_preview_ready: '预览已就绪',
+    toast_reference_ready: '参考图已就绪',
+    toast_gen_started: '开始生成',
+    toast_export_complete: '导出完成',
+  },
+};
+
+let currentLang = localStorage.getItem('choreo_lang')
+  || (navigator.language && navigator.language.toLowerCase().startsWith('zh') ? 'zh' : 'en');
+
+function t(key, vars) {
+  let s = (T[currentLang] && T[currentLang][key]) || (T.en && T.en[key]) || key;
+  if (vars && typeof s === 'string') {
+    for (const k of Object.keys(vars)) {
+      s = s.replace(new RegExp(`\\{${k}\\}`, 'g'), vars[k]);
+    }
+  }
+  return s;
+}
+
+function applyStaticI18n() {
+  document.querySelectorAll('[data-t]').forEach(el => { el.textContent = t(el.dataset.t); });
+  document.querySelectorAll('[data-t-ph]').forEach(el => { el.placeholder = t(el.dataset.tPh); });
+  document.querySelectorAll('[data-t-title]').forEach(el => { el.title = t(el.dataset.tTitle); });
+  document.querySelectorAll('[data-t-html]').forEach(el => { el.innerHTML = t(el.dataset.tHtml); });
+}
+
+function setLang(lang) {
+  if (!T[lang]) return;
+  currentLang = lang;
+  localStorage.setItem('choreo_lang', lang);
+  document.querySelectorAll('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === lang));
+  applyStaticI18n();
+  // Re-render any dynamic content that uses t() in its template literals.
+  if (state && state.project) {
+    renderProjects();
+    renderProject();
+  }
+}
+
 // =========================================================================
 // State
 // =========================================================================
@@ -931,9 +1256,11 @@ function renderBible() {
   const locEls = (b.locations || []).length;
   const assEls = (b.assets || []).length;
   const has = (b.visual_bible || charEls > 0 || locEls > 0 || assEls > 0);
-  $('bibleSummary').textContent = has
-    ? `${charEls} 角色 · ${locEls} 场景 · ${assEls} assets · ${(b.visual_bible || '').length} 字风格`
-    : '还没写 — 建议用 Auto-storyboard 自动生成';
+  const styleLen = (b.visual_bible || '').length;
+  const summary = currentLang === 'zh'
+    ? `${charEls} 角色 · ${locEls} 场景 · ${assEls} 素材 · ${styleLen} 字风格`
+    : `${charEls} chars · ${locEls} locs · ${assEls} assets · ${styleLen} chars style`;
+  $('bibleSummary').textContent = has ? summary : t('bible_sub_empty');
   $('biblePanel').open = has;
   renderBibleList('chars', 'characters', b.characters || []);
   renderBibleList('locs', 'locations', b.locations || []);
@@ -944,7 +1271,7 @@ function renderBibleList(domId, kind, items) {
   const el = $('bible' + (domId.charAt(0).toUpperCase() + domId.slice(1)));
   el.innerHTML = '';
   if (!items.length) {
-    el.innerHTML = `<div style="font-size:11px;color:var(--text-mute);padding:4px 0;">还没有 ${kind}，点上面的 + 按钮加一个</div>`;
+    el.innerHTML = `<div style="font-size:11px;color:var(--text-mute);padding:4px 0;">${t('bible_empty_n')}</div>`;
     return;
   }
   const busy = state.bibleBusy || new Set();
@@ -1172,10 +1499,10 @@ function renderTimeline() {
   const hintEl = $('timelineHint');
   const btn = $('exportBtn');
   if (!total) {
-    hintEl.textContent = '还没有镜头。去 Storyboard 里建几个。';
+    hintEl.textContent = t('timeline_hint_no_shots');
     btn.disabled = true;
   } else if (!done.length) {
-    hintEl.textContent = `${total} 个镜头，0 个已生成。`;
+    hintEl.textContent = currentLang === 'zh' ? `${total} 个镜头，0 个已生成。` : `${total} shots, 0 generated yet.`;
     btn.disabled = true;
   } else {
     const effSec = done.reduce((sum, s) => {
@@ -1183,7 +1510,9 @@ function renderTimeline() {
       const tout = (s.trim_out !== null && s.trim_out !== undefined) ? s.trim_out : (s.duration_sec || 9);
       return sum + Math.max(0, tout - tin);
     }, 0);
-    hintEl.textContent = `${done.length}/${total} 已生成 · 有效时长 ~${effSec.toFixed(1)}s · 拖拽重排 · 跳过未生成的`;
+    hintEl.textContent = currentLang === 'zh'
+      ? `${done.length}/${total} 已生成 · 有效时长 ~${effSec.toFixed(1)}s · 拖拽重排 · 跳过未生成的`
+      : `${done.length}/${total} generated · ~${effSec.toFixed(1)}s effective · drag to reorder · skips un-generated`;
     btn.disabled = false;
   }
 
@@ -1502,7 +1831,7 @@ function renderShots() {
       const sel = (s.character_ids || []).includes(c.id) ? 'selected' : '';
       return `<option value="${escapeHtml(c.id)}" ${sel}>${escapeHtml(c.name || c.id)}</option>`;
     }).join('');
-    const locOpts = `<option value="">(no location)</option>` + locations.map(l => {
+    const locOpts = `<option value="">${t('shot_loc_none')}</option>` + locations.map(l => {
       const sel = s.location_id === l.id ? 'selected' : '';
       return `<option value="${escapeHtml(l.id)}" ${sel}>${escapeHtml(l.name || l.id)}</option>`;
     }).join('');
@@ -1512,36 +1841,36 @@ function renderShots() {
         <div class="l">SHOT</div>
       </div>
       <div class="shot-body">
-        <textarea class="shot-prompt" placeholder="Describe the action in this shot…" data-sid="${s.id}">${escapeHtml(s.prompt || '')}</textarea>
+        <textarea class="shot-prompt" placeholder="${escapeHtml(t('shot_prompt_ph'))}" data-sid="${s.id}">${escapeHtml(s.prompt || '')}</textarea>
         <div class="shot-fields">
-          <span class="mini-label">Chars</span>
+          <span class="mini-label">${t('shot_chars')}</span>
           <select multiple size="1" data-sid="${s.id}" data-field="character_ids" style="min-width:140px;${characters.length === 0 ? 'opacity:0.5;' : ''}">
-            ${charOpts || '<option disabled>no characters defined</option>'}
+            ${charOpts || `<option disabled>${t('shot_no_chars')}</option>`}
           </select>
-          <span class="mini-label">Location</span>
+          <span class="mini-label">${t('shot_location')}</span>
           <select data-sid="${s.id}" data-field="location_id" style="min-width:120px;">
             ${locOpts}
           </select>
-          <span class="mini-label">Camera</span>
-          <input data-sid="${s.id}" data-field="camera" placeholder="wide / close-up / POV..." value="${escapeHtml(s.camera || '')}" style="width:160px;"/>
+          <span class="mini-label">${t('shot_camera')}</span>
+          <input data-sid="${s.id}" data-field="camera" placeholder="${escapeHtml(t('shot_camera_ph'))}" value="${escapeHtml(s.camera || '')}" style="width:160px;"/>
         </div>
         <div class="shot-media">${renderShotMedia(s)}</div>
         <div class="shot-meta">
           <span class="status-chip ${s.status}">${s.status}${s.status === 'generating' ? '<span class="spin" style="margin-left:6px;"></span>' : ''}</span>
-          ${s.preview_url ? '<span class="chip" style="color:var(--teal);">🖼 preview locked</span>' : ''}
+          ${s.preview_url ? `<span class="chip" style="color:var(--teal);">${t('shot_preview_locked')}</span>` : ''}
           ${(s.element_ids || []).map(eid => {
             const a = (state.project.bible?.assets || []).find(x => x.id === eid);
             return a && a.reference_url ? `<span class="chip"><img src="${escapeHtml(a.reference_url)}"/>${escapeHtml(a.name || eid)}</span>` : '';
           }).join('')}
-          <span class="chip clickable" onclick="openPicker('${s.id}')">+ Asset</span>
+          <span class="chip clickable" onclick="openPicker('${s.id}')">${t('btn_add_asset')}</span>
           ${s.task_id && s.status === 'failed' ? `<span class="chip" title="${escapeHtml(s.task_id)}" style="color:var(--err);cursor:help;">× ${escapeHtml(friendlyError(s.task_id))}</span>` : ''}
         </div>
       </div>
       <div class="shot-right">
         <input type="number" class="duration-input" value="${s.duration_sec || 9}" min="3" max="15" data-sid="${s.id}"/>
-        <button class="btn small" onclick="previewShot('${s.id}')" title="Generate a still preview with Seedream (~¥0.3). Also becomes the first-frame reference for video generation.">🖼 Preview</button>
+        <button class="btn small" onclick="previewShot('${s.id}')" title="Seedream preview (~¥0.3). Also serves as first-frame for video.">${t('btn_preview')}</button>
         <button class="btn small primary" onclick="generateShot('${s.id}')" ${s.status === 'generating' ? 'disabled' : ''}>
-          ${s.status === 'done' ? '↻ Regen' : '▶ Generate'}
+          ${s.status === 'done' ? t('btn_regen') : t('btn_generate')}
         </button>
         <button class="btn small danger" onclick="deleteShot('${s.id}')">×</button>
       </div>
@@ -1582,19 +1911,18 @@ function renderShotMedia(s) {
     return `<video class="shot-video" src="${escapeHtml(s.video_url)}" controls playsinline preload="metadata"></video>`;
   }
   if (s.status === 'generating') {
-    return `<div class="shot-placeholder gen"><span class="spin" style="margin-right:8px;"></span>Generating... usually ~4 minutes</div>`;
+    return `<div class="shot-placeholder gen"><span class="spin" style="margin-right:8px;"></span>${t('shot_media_generating')}</div>`;
   }
   if (s.status === 'failed') {
-    return `<div class="shot-placeholder" style="color:var(--err);">Failed — click Regen to retry</div>`;
+    return `<div class="shot-placeholder" style="color:var(--err);">${t('shot_media_failed')}</div>`;
   }
-  // draft: show Seedream preview if present
   if (s.preview_url) {
     return `<div class="shot-preview">
       <img src="${escapeHtml(s.preview_url)}" alt="preview"/>
-      <button class="regen-btn" onclick="previewShot('${s.id}')">↻ Re-preview</button>
+      <button class="regen-btn" onclick="previewShot('${s.id}')">${t('shot_repreview')}</button>
     </div>`;
   }
-  return `<div class="shot-placeholder">Preview first, then Generate video</div>`;
+  return `<div class="shot-placeholder">${t('shot_media_preview_first')}</div>`;
 }
 
 async function previewShot(sid) {
@@ -1824,6 +2152,11 @@ $('scriptBox').addEventListener('blur', async () => {
     state.project.script = script;
   } catch (e) { toast(e.message, true); }
 });
+
+// Apply initial language (from localStorage or browser default) before any
+// dynamic rendering so everything picks up the right strings immediately.
+applyStaticI18n();
+document.querySelectorAll('.lang-btn').forEach(b => b.classList.toggle('active', b.dataset.lang === currentLang));
 
 // boot
 loadProjects().then(() => {
