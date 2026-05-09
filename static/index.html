@@ -262,9 +262,9 @@ input, select, textarea { font:inherit; color:inherit; }
   font-size:11px; gap:6px;
 }
 .bible-img-actions {
-  display:grid; grid-template-columns:1fr 1fr; gap:4px;
+  display:grid; grid-template-columns:1fr 1fr 1fr; gap:4px;
 }
-.bible-img-actions.has-image { grid-template-columns:1fr 1fr 1fr; }
+.bible-img-actions.has-image { grid-template-columns:1fr 1fr 1fr 1fr; }
 .bible-img-actions button {
   padding:5px 6px; font-size:10px; font-weight:500;
   border-radius:5px; border:1px solid var(--line);
@@ -600,7 +600,10 @@ input, select, textarea { font:inherit; color:inherit; }
               </h4>
               <div class="bible-list" id="bibleAssets"></div>
             </div>
-            <div style="display:flex;justify-content:flex-end;">
+            <div style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;">
+              <button class="btn" id="bibleFillAll" onclick="bibleFillAllMissing()" title="为所有有 visual 描述但还没参考图的条目用 Seedream 自动生成">
+                <span data-t="bible_fill_all"></span>
+              </button>
               <button class="btn primary" data-t="bible_save" onclick="saveBible()"></button>
             </div>
           </div>
@@ -853,6 +856,7 @@ const T = {
     bible_add_asset: '+ Asset',
     bible_save: 'Save bible',
     bible_empty_n: 'Nothing here — click the + button above',
+    bible_fill_all: '✨ Generate all missing references',
 
     // shot card
     shot_label: 'SHOT',
@@ -995,6 +999,7 @@ const T = {
     bible_add_asset: '+ 新素材',
     bible_save: '保存 Bible',
     bible_empty_n: '还没有条目，点上面的 + 按钮加一个',
+    bible_fill_all: '✨ 一键生成所有缺失参考图',
 
     shot_label: '镜头',
     shot_prompt_ph: '描述这个镜头的动作…',
@@ -1324,6 +1329,7 @@ function renderBibleList(domId, kind, items) {
     const hasImg = !!it.reference_url;
     const genLabel = currentLang === 'zh' ? '生成' : 'Generate';
     const uploadLabel = currentLang === 'zh' ? '上传' : 'Upload';
+    const urlLabel = currentLang === 'zh' ? '链接' : 'URL';
     const genBusyLabel = currentLang === 'zh' ? '生成中' : 'Generating';
     const noRefLabel = currentLang === 'zh' ? '暂无参考图' : 'no reference yet';
 
@@ -1345,6 +1351,7 @@ function renderBibleList(domId, kind, items) {
         <div class="bible-img-actions ${hasImg ? 'has-image' : ''}">
           <button class="gen-btn" onclick="bibleGenImage('${kind}', '${escapeHtml(it.id || '')}')" ${isBusy ? 'disabled' : ''}>✨ ${escapeHtml(genLabel)}</button>
           <button onclick="bibleUploadImage('${kind}', '${escapeHtml(it.id || '')}')" ${isBusy ? 'disabled' : ''}>⬆ ${escapeHtml(uploadLabel)}</button>
+          <button onclick="bibleUrlImage('${kind}', '${escapeHtml(it.id || '')}')" ${isBusy ? 'disabled' : ''} title="Paste a URL — works for Volcengine virtual-portrait library URIs, public CDN images, Seedream outputs, etc.">🔗 ${escapeHtml(urlLabel)}</button>
           ${hasImg ? `<button class="del-btn" onclick="bibleDelImage('${kind}', '${escapeHtml(it.id || '')}')" title="Remove image">×</button>` : ''}
         </div>
       </div>
@@ -1422,6 +1429,40 @@ function bibleUploadImage(kind, eid) {
   inp.click();
 }
 
+function bibleUrlImage(kind, eid) {
+  if (!eid) { toast(t('toast_bible_save_first') || 'Entry needs an id first', true); return; }
+  const example = currentLang === 'zh'
+    ? '示例：从火山方舟 Playground "虚拟人像库" 复制 URI 粘贴在这里。也支持任何公开 https 图片链接。'
+    : 'Paste an image URL — works with Volcengine virtual-portrait library URIs (copy from Ark Playground), public CDN images, etc.';
+  const url = window.prompt(example, '');
+  if (!url || !url.trim()) return;
+  state.bibleBusy = state.bibleBusy || new Set();
+  state.bibleBusy.add(`${kind}:${eid}`);
+  renderBible();
+  (async () => {
+    try {
+      await _collectAndSaveBible(true);
+      const resp = await api(`/api/projects/${state.currentId}/bible/${kind}/${eid}/from_url`,
+                             { method: 'POST', body: JSON.stringify({ url: url.trim() }) });
+      const list = state.project.bible[kind] || [];
+      const it = list.find(x => x.id === eid);
+      if (it) {
+        it.reference_tos_key = resp.reference_tos_key;
+        it.reference_url = resp.reference_url;
+      }
+      toast(resp.faces_masked > 0
+        ? (currentLang === 'zh' ? `已加载 — ${resp.faces_masked} 个人脸自动遮挡` : `Loaded — ${resp.faces_masked} face(s) auto-masked`)
+        : (currentLang === 'zh' ? '链接已加载' : 'URL loaded'));
+    } catch (e) {
+      toast(e.message, true);
+    } finally {
+      state.bibleBusy.delete(`${kind}:${eid}`);
+      renderBible();
+      renderShots();
+    }
+  })();
+}
+
 async function bibleDelImage(kind, eid) {
   if (!confirm('Remove this reference image?')) return;
   try {
@@ -1476,6 +1517,62 @@ async function _collectAndSaveBible(silent = false) {
 async function saveBible() {
   try { await _collectAndSaveBible(false); }
   catch (e) { toast(e.message, true); }
+}
+
+async function bibleFillAllMissing() {
+  // For every character/location/asset that has a non-empty visual description
+  // but no reference image yet, run Seedream to generate one. Sequential to
+  // keep cost predictable and avoid hammering the API.
+  const b = state.project.bible || {};
+  const todo = [];
+  for (const kind of ['characters', 'locations', 'assets']) {
+    for (const e of (b[kind] || [])) {
+      if (!e.reference_url && (e.visual || '').trim()) {
+        todo.push({ kind, id: e.id, name: e.name || e.id });
+      }
+    }
+  }
+  if (!todo.length) {
+    toast(currentLang === 'zh' ? '没有可填的条目（每个都已有图或还没写描述）' : 'Nothing to fill — every entry either has an image already or no description');
+    return;
+  }
+  const cost = (todo.length * 0.3).toFixed(1);
+  const msg = currentLang === 'zh'
+    ? `将为 ${todo.length} 个条目生成 Seedream 参考图，约 ¥${cost}，串行 ~${todo.length * 12}s。继续？`
+    : `Generate Seedream reference images for ${todo.length} entries (~¥${cost}, ~${todo.length * 12}s sequential). Continue?`;
+  if (!confirm(msg)) return;
+
+  // Make sure server has the latest bible state before iterating
+  try { await _collectAndSaveBible(true); }
+  catch (e) { toast(e.message, true); return; }
+
+  $('bibleFillAll').disabled = true;
+  let ok = 0;
+  for (const t of todo) {
+    state.bibleBusy = state.bibleBusy || new Set();
+    state.bibleBusy.add(`${t.kind}:${t.id}`);
+    renderBible();
+    try {
+      const resp = await api(`/api/projects/${state.currentId}/bible/${t.kind}/${t.id}/generate`,
+                             { method: 'POST', body: JSON.stringify({}) });
+      const it = (state.project.bible[t.kind] || []).find(x => x.id === t.id);
+      if (it) {
+        it.reference_tos_key = resp.reference_tos_key;
+        it.reference_url = resp.reference_url;
+      }
+      ok++;
+    } catch (e) {
+      console.warn(`fill ${t.kind}/${t.id} failed:`, e.message);
+    } finally {
+      state.bibleBusy.delete(`${t.kind}:${t.id}`);
+      renderBible();
+    }
+  }
+  $('bibleFillAll').disabled = false;
+  toast(currentLang === 'zh'
+    ? `完成：${ok}/${todo.length} 张参考图已就绪`
+    : `Done: ${ok}/${todo.length} references generated`);
+  renderShots();
 }
 
 async function saveSettings(patch) {

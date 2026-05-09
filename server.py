@@ -428,6 +428,61 @@ def bible_generate_image(pid, kind, eid):
     })
 
 
+@app.route("/api/projects/<pid>/bible/<kind>/<eid>/from_url", methods=["POST"])
+@require_auth
+def bible_image_from_url(pid, kind, eid):
+    """Download an image from a public URL (e.g. a Volcengine virtual-portrait
+    asset URI copied from the Ark Playground) and store it as this bible
+    entry's reference image. Auto-masks faces in case the URL points to a
+    real-person photo. Idempotent — overwrites any existing image."""
+    if kind not in ("characters", "locations", "assets"):
+        return jsonify({"error": "kind must be characters|locations|assets"}), 400
+    p = storage.get_project(pid)
+    if not p:
+        return jsonify({"error": "project not found"}), 404
+    _, entry = _bible_find(p, kind, eid)
+    if not entry:
+        return jsonify({"error": f"{kind}/{eid} not found"}), 404
+    body = request.get_json() or {}
+    url = (body.get("url") or "").strip()
+    if not url or not (url.startswith("http://") or url.startswith("https://")):
+        return jsonify({"error": "url must be http(s)://..."}), 400
+    try:
+        resp = requests.get(url, timeout=60, stream=False, allow_redirects=True)
+        resp.raise_for_status()
+    except Exception as e:
+        return jsonify({"error": f"download failed: {e}"}), 502
+    raw = resp.content
+    # Try to infer extension from content-type or URL
+    ct = (resp.headers.get("Content-Type") or "").lower()
+    if "png" in ct:
+        ext = ".png"
+    elif "webp" in ct:
+        ext = ".webp"
+    elif "jpeg" in ct or "jpg" in ct:
+        ext = ".jpg"
+    else:
+        ext = ".png"  # safe default; we may re-encode below
+    # Auto-mask any real faces (Volcengine virtual portraits won't trigger this).
+    face_count = 0
+    try:
+        masked, face_count = faces.mask_faces(raw)
+        if face_count > 0:
+            raw = masked
+            ext = ".png"
+    except Exception:
+        pass
+    key = f"dance-gen/studio/projects/{pid}/bible/{kind}/{eid}{ext}"
+    tos_upload_bytes(raw, key)
+    _save_bible_entry(pid, kind, eid, key)
+    return jsonify({
+        "reference_tos_key": key,
+        "reference_url": tos_presign(key, expires=3600),
+        "faces_masked": face_count,
+        "source_url": url,
+    })
+
+
 @app.route("/api/projects/<pid>/bible/<kind>/<eid>/image", methods=["DELETE"])
 @require_auth
 def bible_delete_image(pid, kind, eid):
