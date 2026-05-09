@@ -1124,6 +1124,24 @@ function setLang(lang) {
 }
 
 // =========================================================================
+// Global error reporter — surface unhandled errors as a toast so we don't
+// rely on the user opening DevTools to know something blew up.
+// =========================================================================
+window.addEventListener('error', (e) => {
+  if (typeof toast === 'function') {
+    const where = e.filename ? ` (${e.filename.split('/').pop()}:${e.lineno})` : '';
+    toast(`JS error: ${e.message}${where}`, true);
+  }
+});
+window.addEventListener('unhandledrejection', (e) => {
+  if (typeof toast === 'function') {
+    const r = e.reason;
+    const msg = r?.message || (typeof r === 'string' ? r : JSON.stringify(r));
+    toast(`Async error: ${msg}`, true);
+  }
+});
+
+// =========================================================================
 // State
 // =========================================================================
 const state = {

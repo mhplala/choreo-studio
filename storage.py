@@ -146,7 +146,15 @@ def _hydrate_project(row: dict) -> dict:
         b = json.loads(d.get("bible") or "{}")
     except (ValueError, TypeError):
         b = {}
-    d["bible"] = {**DEFAULT_BIBLE, **b}
+    merged = {**DEFAULT_BIBLE, **b}
+    # Defensive: ensure the three list fields are always actual lists, even
+    # if a malformed bible somehow got persisted as null / dict / string.
+    # Frontend code does `for (const e of bible.characters)` — if it's not
+    # iterable we get a hard "X is not iterable" runtime error.
+    for k in ("characters", "locations", "assets"):
+        if not isinstance(merged.get(k), list):
+            merged[k] = []
+    d["bible"] = merged
     return d
 
 
