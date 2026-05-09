@@ -23,18 +23,45 @@ YUNET_URL = (
     "https://github.com/opencv/opencv_zoo/raw/main/"
     "models/face_detection_yunet/face_detection_yunet_2023mar.onnx"
 )
-YUNET_PATH = Path.home() / ".cache" / "choreo-studio" / "yunet.onnx"
+# Try the bundled model first; fall back to a user-cache download for dev
+# machines that don't have it co-located with the code.
+_BUNDLED_YUNET = Path(__file__).parent / "models_data" / "yunet.onnx"
+YUNET_PATH = _BUNDLED_YUNET if _BUNDLED_YUNET.exists() else (
+    Path.home() / ".cache" / "choreo-studio" / "yunet.onnx"
+)
+
+
+def _download_yunet(dst: Path, timeout: float = 15.0) -> bool:
+    """Download YuNet ONNX with a hard timeout. Returns True on success."""
+    import socket
+    old = socket.getdefaulttimeout()
+    socket.setdefaulttimeout(timeout)
+    try:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        urllib.request.urlretrieve(YUNET_URL, dst)
+        return True
+    except Exception:
+        # Make sure we don't leave a half-written file behind.
+        try:
+            if dst.exists() and dst.stat().st_size < 100_000:
+                dst.unlink()
+        except Exception:
+            pass
+        return False
+    finally:
+        socket.setdefaulttimeout(old)
 
 
 def _ensure_yunet():
     global _YUNET
     if _YUNET is not None:
-        return _YUNET
+        return _YUNET if _YUNET is not False else None
     try:
         if not YUNET_PATH.exists():
-            YUNET_PATH.parent.mkdir(parents=True, exist_ok=True)
-            urllib.request.urlretrieve(YUNET_URL, YUNET_PATH)
-        # Input size is overridden per-image via setInputSize.
+            ok = _download_yunet(YUNET_PATH)
+            if not ok:
+                _YUNET = False
+                return None
         _YUNET = cv2.FaceDetectorYN.create(
             str(YUNET_PATH), "", (320, 320),
             score_threshold=0.4, nms_threshold=0.3, top_k=5000,

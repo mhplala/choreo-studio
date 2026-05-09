@@ -9,3 +9,5 @@ studio.db-*
 logs/
 *.log
 .DS_Store
+# Note: we DO commit models_data/yunet.onnx (~230KB) so face detection works
+# offline without depending on a GitHub raw download from China-region hosts.
