@@ -439,6 +439,21 @@ input, select, textarea { font:inherit; color:inherit; }
 </head>
 <body>
 
+<!-- Seedance official 8-camera vocabulary, suggested via datalist on shot camera inputs -->
+<datalist id="camera-suggestions">
+  <option value="slow push-in">
+  <option value="slow pull-out">
+  <option value="pan left">
+  <option value="pan right">
+  <option value="tracking shot">
+  <option value="orbit around subject">
+  <option value="aerial shot">
+  <option value="handheld">
+  <option value="fixed">
+  <option value="low-angle tracking">
+  <option value="overhead">
+</datalist>
+
 <div class="app">
   <!-- sidebar -->
   <aside class="sidebar">
@@ -1893,7 +1908,7 @@ function renderShots() {
             ${locOpts}
           </select>
           <span class="mini-label">${t('shot_camera')}</span>
-          <input data-sid="${s.id}" data-field="camera" placeholder="${escapeHtml(t('shot_camera_ph'))}" value="${escapeHtml(s.camera || '')}" style="width:160px;"/>
+          <input data-sid="${s.id}" data-field="camera" placeholder="${escapeHtml(t('shot_camera_ph'))}" value="${escapeHtml(s.camera || '')}" style="width:160px;" list="camera-suggestions"/>
         </div>
         <div class="shot-media">${renderShotMedia(s)}</div>
         <div class="shot-meta">

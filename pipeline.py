@@ -118,41 +118,91 @@ def bible_reference_keys(bible: dict, shot: dict) -> list[str]:
     return keys
 
 
+# Default constraints appended to every Seedance prompt — Seedance 2.0's
+# official guide recommends standard "avoid" patterns to suppress common
+# artifacts (jitter, deformed limbs, identity drift). These work in any language.
+_DEFAULT_CONSTRAINTS_ZH = "避免抖动、肢体扭曲、人物形象漂移、画面闪烁"
+_DEFAULT_CONSTRAINTS_EN = "avoid jitter, avoid bent limbs, avoid identity drift, avoid temporal flicker"
+
+
+def _has_cjk(text: str) -> bool:
+    if not text:
+        return False
+    cjk = sum(1 for ch in text if "一" <= ch <= "鿿")
+    return cjk >= 5  # at least a few CJK chars
+
+
 def compose_prompt(bible: dict, shot: dict) -> str:
     """Build the full Seedance prompt from the project's bible and this shot's
-    structured fields. This is the core of cross-shot continuity: every shot's
-    prompt carries the same visual_bible + character descriptions + location
-    description, so Seedance sees coherent context across the whole project.
-    """
-    parts = []
-    vb = (bible.get("visual_bible") or "").strip()
-    if vb:
-        parts.append(vb)
+    structured fields, ordered per Seedance 2.0's official 6-step formula:
 
-    char_ids = shot.get("character_ids") or []
-    chars = [c for c in (bible.get("characters") or []) if c["id"] in char_ids]
+        Subject → Action → Environment → Camera → Style → Constraints
+
+    Every shot in a project shares the same Subject (character visuals),
+    Environment (location visual), and Style (visual_bible), so the model
+    sees consistent context across cuts. Action and Camera are per-shot.
+    """
+    # Collect raw text in 6-step order
+    char_ids_set = set(shot.get("character_ids") or [])
+    chars = [c for c in (bible.get("characters") or []) if c.get("id") in char_ids_set]
+
+    loc_id = shot.get("location_id") or ""
+    loc = next((l for l in (bible.get("locations") or []) if l.get("id") == loc_id), None)
+
+    action = (shot.get("prompt") or "").strip()
+    cam = (shot.get("camera") or "").strip()
+    vb = (bible.get("visual_bible") or "").strip()
+
+    # Decide language by sniffing all free text
+    sample = " ".join([
+        vb,
+        " ".join((c.get("visual", "") + " " + c.get("name", "")) for c in chars),
+        (loc.get("visual", "") if loc else ""),
+        action,
+    ])
+    is_zh = _has_cjk(sample)
+
+    parts: list[str] = []
+
+    # 1. Subject — character(s)
     if chars:
-        parts.append(
-            "角色: " + "；".join(
+        joiner = "、" if is_zh else ", "
+        if is_zh:
+            chars_str = joiner.join(
                 f"{c['name']}（{c['visual']}）" if c.get("visual") else c.get("name", "")
                 for c in chars
             )
-        )
+        else:
+            chars_str = joiner.join(
+                f"{c['name']} ({c['visual']})" if c.get("visual") else c.get("name", "")
+                for c in chars
+            )
+        parts.append(chars_str)
 
-    loc_id = shot.get("location_id") or ""
-    loc = next((l for l in (bible.get("locations") or []) if l["id"] == loc_id), None)
-    if loc and loc.get("visual"):
-        parts.append(f"场景: {loc['visual']}")
-
-    cam = (shot.get("camera") or "").strip()
-    if cam:
-        parts.append(f"镜头: {cam}")
-
-    action = (shot.get("prompt") or "").strip()
+    # 2. Action
     if action:
-        parts.append(f"动作: {action}")
+        parts.append(action)
 
-    return "\n\n".join(parts) if parts else "A cinematic scene."
+    # 3. Environment
+    if loc and loc.get("visual"):
+        parts.append((f"场景：{loc['visual']}") if is_zh else (f"environment: {loc['visual']}"))
+
+    # 4. Camera (one primary instruction, per official guide)
+    if cam:
+        parts.append((f"镜头：{cam}") if is_zh else (f"camera: {cam}"))
+
+    # 5. Style — the global visual bible
+    if vb:
+        parts.append((f"风格：{vb}") if is_zh else (f"style: {vb}"))
+
+    # 6. Constraints — always-on defaults to suppress common artifacts
+    parts.append(_DEFAULT_CONSTRAINTS_ZH if is_zh else _DEFAULT_CONSTRAINTS_EN)
+
+    if not parts:
+        return "A cinematic scene." if not is_zh else "电影感画面。"
+
+    sep = "。" if is_zh else ". "
+    return sep.join(parts) + (sep if is_zh else ".")
 
 
 def _run_one_shot(project_id: str, shot_id: str, chain_from_prev: bool):
